@@ -1,0 +1,293 @@
+package com.sellsync.api.domain.order.service;
+
+import com.sellsync.api.domain.order.dto.OrderListResponse;
+import com.sellsync.api.domain.order.dto.OrderResponse;
+import com.sellsync.api.domain.order.entity.Order;
+import com.sellsync.api.domain.order.enums.Marketplace;
+import com.sellsync.api.domain.order.enums.OrderStatus;
+import com.sellsync.api.domain.order.exception.OrderNotFoundException;
+import com.sellsync.api.domain.order.repository.OrderRepository;
+import jakarta.persistence.criteria.JoinType;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * 주문(Order) 서비스
+ * 
+ * 멱등성 키: (store_id, marketplace_order_id)
+ * - 동일 상점, 동일 마켓 주문번호는 1회만 저장
+ * - 이미 존재하면 기존 주문 반환 또는 업데이트
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class OrderService {
+
+    private final OrderRepository orderRepository;
+    private final com.sellsync.api.domain.mapping.repository.ProductMappingRepository productMappingRepository;
+
+    /**
+     * 주문 저장/조회 (멱등 Upsert)
+     * - 동일 멱등키로는 1회만 생성
+     * - 이미 존재하면 기존 주문 업데이트 후 반환
+     * 
+     * 멱등키: store_id + marketplace_order_id
+     */
+    @Transactional
+    public OrderResponse saveOrUpdate(Order order) {
+        try {
+            // 1. 멱등키로 기존 주문 조회
+            return orderRepository.findByStoreIdAndMarketplaceOrderId(
+                    order.getStoreId(),
+                    order.getMarketplaceOrderId()
+            )
+            .map(existing -> {
+                // 2. 기존 주문 업데이트
+                updateExistingOrder(existing, order);
+                Order updated = orderRepository.save(existing);
+                log.info("[멱등성] 기존 주문 업데이트: orderId={}, marketplaceOrderId={}, status={}", 
+                    updated.getOrderId(), updated.getMarketplaceOrderId(), updated.getOrderStatus());
+                return OrderResponse.from(updated);
+            })
+            .orElseGet(() -> {
+                // 3. 신규 주문 생성
+                Order saved = orderRepository.save(order);
+                log.info("[신규 생성] orderId={}, marketplace={}, marketplaceOrderId={}, status={}", 
+                    saved.getOrderId(), saved.getMarketplace(), saved.getMarketplaceOrderId(), saved.getOrderStatus());
+                return OrderResponse.from(saved);
+            });
+        } catch (DataIntegrityViolationException e) {
+            // 4. 동시성: 중복 insert 발생 시 재조회 (멱등 수렴)
+            log.warn("[동시성 처리] Unique 제약 위반 감지, 재조회 시도: storeId={}, marketplaceOrderId={}", 
+                order.getStoreId(), order.getMarketplaceOrderId());
+            
+            Order existing = orderRepository.findByStoreIdAndMarketplaceOrderId(
+                    order.getStoreId(),
+                    order.getMarketplaceOrderId()
+            )
+            .orElseThrow(() -> new IllegalStateException("동시성 처리 중 주문 조회 실패"));
+            
+            // 동시성 경합 후 재조회된 주문도 업데이트
+            updateExistingOrder(existing, order);
+            Order updated = orderRepository.save(existing);
+            return OrderResponse.from(updated);
+        }
+    }
+
+    /**
+     * 기존 주문 업데이트 (최신 데이터 반영)
+     */
+    private void updateExistingOrder(Order existing, Order newOrder) {
+        // 주문 상태 업데이트
+        existing.setOrderStatus(newOrder.getOrderStatus());
+        
+        // 수취인 정보 업데이트
+        if (newOrder.getReceiverName() != null) {
+            existing.setReceiverName(newOrder.getReceiverName());
+            existing.setReceiverPhone1(newOrder.getReceiverPhone1());
+            existing.setReceiverPhone2(newOrder.getReceiverPhone2());
+            existing.setReceiverZipCode(newOrder.getReceiverZipCode());
+            existing.setReceiverAddress(newOrder.getReceiverAddress());
+        }
+        
+        // 금액 정보 업데이트
+        existing.setTotalProductAmount(newOrder.getTotalProductAmount());
+        existing.setTotalDiscountAmount(newOrder.getTotalDiscountAmount());
+        existing.setTotalShippingAmount(newOrder.getTotalShippingAmount());
+        existing.setTotalPaidAmount(newOrder.getTotalPaidAmount());
+        
+        // OrderItem은 기존 것을 유지 (중복 방지)
+        // 실제 운영에서는 취소된 아이템 처리 등 추가 로직 필요
+        
+        log.debug("[주문 업데이트] orderId={}, status={} -> {}", 
+            existing.getOrderId(), existing.getOrderStatus(), newOrder.getOrderStatus());
+    }
+
+    /**
+     * 주문 조회 (ID)
+     */
+    @Transactional(readOnly = true)
+    public OrderResponse getById(UUID orderId) {
+        return orderRepository.findById(orderId)
+                .map(OrderResponse::from)
+                .orElseThrow(() -> new OrderNotFoundException(orderId));
+    }
+
+    /**
+     * 멱등키로 주문 조회
+     */
+    @Transactional(readOnly = true)
+    public OrderResponse getByIdempotencyKey(UUID storeId, String marketplaceOrderId) {
+        return orderRepository.findByStoreIdAndMarketplaceOrderId(storeId, marketplaceOrderId)
+                .map(OrderResponse::from)
+                .orElse(null);
+    }
+
+    /**
+     * 마켓플레이스별 주문 목록 조회 (결재일 최근순)
+     */
+    @Transactional(readOnly = true)
+    public Page<OrderListResponse> findByMarketplace(UUID tenantId, Marketplace marketplace, Pageable pageable) {
+        return orderRepository.findByTenantIdAndMarketplaceOrderByPaidAtDesc(tenantId, marketplace, pageable)
+                .map(OrderListResponse::from);
+    }
+
+    /**
+     * 배치 저장 (멱등)
+     * - 각 주문을 멱등 저장 처리
+     */
+    @Transactional
+    public List<OrderResponse> saveOrUpdateBatch(List<Order> orders) {
+        return orders.stream()
+                .map(this::saveOrUpdate)
+                .toList();
+    }
+
+    /**
+     * 주문 목록 조회 (페이지네이션, 다양한 필터)
+     * 
+     * @param tenantId 테넌트 ID (필수)
+     * @param status 주문 상태 (선택)
+     * @param marketplaceStr 마켓플레이스 문자열 (선택)
+     * @param storeId 스토어 ID (선택)
+     * @param pageable 페이지 정보
+     * @return 주문 목록 페이지
+     */
+    @Transactional(readOnly = true)
+    public Page<OrderListResponse> getOrders(
+            UUID tenantId,
+            OrderStatus status,
+            String marketplaceStr,
+            UUID storeId,
+            Pageable pageable
+    ) {
+        // marketplace 문자열을 Enum으로 변환
+        Marketplace marketplace = null;
+        if (marketplaceStr != null && !marketplaceStr.isEmpty()) {
+            try {
+                marketplace = Marketplace.valueOf(marketplaceStr);
+            } catch (IllegalArgumentException e) {
+                log.warn("[주문 목록 조회] 잘못된 marketplace 값: {}", marketplaceStr);
+            }
+        }
+
+        // Specification을 사용한 동적 쿼리 생성
+        Specification<Order> spec = createOrderSpecification(tenantId, status, marketplace, storeId);
+
+        // items를 fetch join으로 조회
+        Page<Order> orders = orderRepository.findAll(spec, pageable);
+
+        log.debug("[주문 목록 조회] tenantId={}, status={}, marketplace={}, storeId={}, page={}, size={}, total={}", 
+                tenantId, status, marketplace, storeId,
+                pageable.getPageNumber(), pageable.getPageSize(), orders.getTotalElements());
+
+        // OrderListResponse로 변환하고 매핑 상태 계산
+        return orders.map(order -> {
+            OrderListResponse response = OrderListResponse.from(order);
+            
+            // 매핑 상태 계산
+            String mappingStatus = calculateMappingStatus(order);
+            response.setMappingStatus(mappingStatus);
+            
+            return response;
+        });
+    }
+    
+    /**
+     * 주문의 매핑 상태 계산
+     * - MAPPED: 모든 상품 매핑됨
+     * - UNMAPPED: 모든 상품 미매핑
+     * - PARTIAL: 일부만 매핑됨
+     */
+    private String calculateMappingStatus(Order order) {
+        if (order.getItems() == null || order.getItems().isEmpty()) {
+            return "UNMAPPED";
+        }
+        
+        int totalItems = order.getItems().size();
+        int mappedCount = 0;
+        
+        for (var item : order.getItems()) {
+            // 각 OrderItem의 매핑 여부 확인
+            boolean isMapped = productMappingRepository
+                    .findByTenantIdAndMarketplaceProductIdAndMarketplaceSku(
+                            order.getTenantId(),
+                            item.getMarketplaceProductId(),
+                            item.getMarketplaceSku()
+                    )
+                    .stream()
+                    .anyMatch(mapping -> 
+                        mapping.getMappingStatus() == com.sellsync.api.domain.mapping.enums.MappingStatus.MAPPED
+                    );
+            
+            if (isMapped) {
+                mappedCount++;
+            }
+        }
+        
+        if (mappedCount == 0) {
+            return "UNMAPPED";
+        } else if (mappedCount == totalItems) {
+            return "MAPPED";
+        } else {
+            return "PARTIAL";
+        }
+    }
+
+    /**
+     * Order 검색을 위한 Specification 생성
+     */
+    private Specification<Order> createOrderSpecification(
+            UUID tenantId, 
+            OrderStatus status, 
+            Marketplace marketplace, 
+            UUID storeId
+    ) {
+        return (root, query, cb) -> {
+            // DISTINCT 설정 (fetch join으로 인한 중복 제거)
+            query.distinct(true);
+            
+            // items fetch join (N+1 방지)
+            if (query.getResultType() != Long.class && query.getResultType() != long.class) {
+                root.fetch("items", JoinType.LEFT);
+            }
+            
+            // WHERE 조건 생성
+            var predicates = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
+            
+            // tenantId는 필수
+            predicates.add(cb.equal(root.get("tenantId"), tenantId));
+            
+            // status 필터 (optional)
+            if (status != null) {
+                predicates.add(cb.equal(root.get("orderStatus"), status));
+            }
+            
+            // marketplace 필터 (optional)
+            if (marketplace != null) {
+                predicates.add(cb.equal(root.get("marketplace"), marketplace));
+            }
+            
+            // storeId 필터 (optional)
+            if (storeId != null) {
+                predicates.add(cb.equal(root.get("storeId"), storeId));
+            }
+            
+            // 결재일 기준 최근순 정렬 추가
+            if (query.getResultType() != Long.class && query.getResultType() != long.class) {
+                query.orderBy(cb.desc(root.get("paidAt")));
+            }
+            
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        };
+    }
+}

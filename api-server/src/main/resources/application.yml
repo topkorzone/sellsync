@@ -1,0 +1,91 @@
+spring:
+  application:
+    name: sellsync-api-server
+  
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+  
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        use_sql_comments: false
+        default_batch_fetch_size: 100
+        jdbc:
+          batch_size: 20
+          time_zone: Asia/Seoul  # ✅ 애플리케이션은 한국 시간, DB는 UTC로 Hibernate가 자동 변환
+        order_inserts: true
+        order_updates: true
+  
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0  # 0으로 설정하여 V1부터 실행
+    locations: classpath:db/migration
+    validate-on-migrate: false  # 마이그레이션 파일 수정 시 체크섬 검증 비활성화
+    out-of-order: false
+
+# JWT 설정
+jwt:
+  secret: ${JWT_SECRET:your-256-bit-secret-key-here-must-be-at-least-32-characters-long-for-hs256}
+  access-token-expiration: 3600000      # 1시간 (ms)
+  refresh-token-expiration: 604800000   # 7일 (ms)
+
+# 보안 설정
+security:
+  encryption:
+    key: ${ENCRYPTION_KEY:your-32-byte-secret-key-here!!!!}
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+# Marketplace API 설정
+marketplace:
+  smartstore:
+    base-url: https://api.commerce.naver.com
+    token-url: https://api.commerce.naver.com/external/v1/oauth2/token
+    connect-timeout: 5000
+    read-timeout: 30000
+  coupang:
+    base-url: https://api-gateway.coupang.com
+    connect-timeout: 5000
+    read-timeout: 30000
+
+# ERP API 설정
+ecount:
+  api:
+    base-url: https://oapi.ecount.com
+    connect-timeout: 5000
+    read-timeout: 30000
+
+# Scheduler 설정
+scheduling:
+  order-collection:
+    enabled: true
+    cron: "0 0/30 * * * *"  # 30분마다 (0분, 30분)
+
+# Logging
+logging:
+  level:
+    root: INFO
+    com.sellsync: DEBUG
+    com.sellsync.api.scheduler: INFO
+    org.springframework.web: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

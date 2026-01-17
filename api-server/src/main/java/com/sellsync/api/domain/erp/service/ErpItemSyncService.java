@@ -1,0 +1,330 @@
+package com.sellsync.api.domain.erp.service;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sellsync.api.domain.erp.client.ErpClient;
+import com.sellsync.api.domain.erp.dto.ErpItemDto;
+import com.sellsync.api.domain.erp.dto.ErpItemSearchRequest;
+import com.sellsync.api.domain.erp.entity.ErpItem;
+import com.sellsync.api.domain.erp.entity.ErpItemSyncHistory;
+import com.sellsync.api.domain.erp.repository.ErpItemRepository;
+import com.sellsync.api.domain.erp.repository.ErpItemSyncHistoryRepository;
+import com.sellsync.infra.erp.ecount.EcountClient;
+import lombok.Builder;
+import lombok.Data;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+
+@Service
+@Slf4j
+@RequiredArgsConstructor
+public class ErpItemSyncService {
+
+    private final ErpItemRepository erpItemRepository;
+    private final ErpItemSyncHistoryRepository syncHistoryRepository;
+    private final List<ErpClient> erpClients;
+    private final ObjectMapper objectMapper;
+
+    @Data
+    @Builder
+    public static class SyncResult {
+        private int totalFetched;
+        private int created;
+        private int updated;
+        private int deactivated;
+    }
+
+    @Transactional
+    public SyncResult syncItems(UUID tenantId, String erpCode, String triggerType) {
+        log.info("[ErpItemSync] Starting sync for tenant {} ({})", tenantId, erpCode);
+        
+        LocalDateTime syncStartTime = LocalDateTime.now();
+        ErpItemSyncHistory history = createSyncHistory(tenantId, erpCode, triggerType);
+
+        try {
+            ErpClient client = getClient(erpCode);
+            List<ErpItemDto> allItems = fetchAllItems(tenantId, client);
+
+            log.info("[ErpItemSync] Fetched {} items from ERP", allItems.size());
+
+            // 재고 현황 조회 (Ecount인 경우에만)
+            Map<String, EcountClient.InventoryBalance> inventoryBalances = new HashMap<>();
+            if ("ECOUNT".equals(erpCode) && client instanceof EcountClient) {
+                try {
+                    EcountClient ecountClient = (EcountClient) client;
+                    String baseDate = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+                    inventoryBalances = ecountClient.getInventoryBalances(tenantId, baseDate);
+                    log.info("[ErpItemSync] Fetched {} inventory balances", inventoryBalances.size());
+                } catch (Exception e) {
+                    log.warn("[ErpItemSync] Failed to fetch inventory balances, continuing without stock data: {}", 
+                            e.getMessage());
+                }
+            }
+
+            // 배치 처리를 위한 리스트 - 새 아이템과 기존 아이템 분리
+            List<ErpItem> newItems = new ArrayList<>();
+            List<ErpItem> existingItems = new ArrayList<>();
+            int created = 0, updated = 0;
+
+            // 기존 품목 맵 생성 (성능 최적화)
+            Map<String, ErpItem> existingItemsMap = buildExistingItemsMap(tenantId, erpCode);
+            
+            // 중복 제거 및 병합: 같은 item_code가 여러 번 나오면 마지막 것으로 덮어쓰기 (업데이트 처리)
+            Map<String, ErpItemDto> uniqueItems = new LinkedHashMap<>();
+            int duplicateCount = 0;
+            for (ErpItemDto dto : allItems) {
+                String itemCode = dto.getItemCode();
+                if (uniqueItems.containsKey(itemCode)) {
+                    duplicateCount++;
+                    log.debug("[ErpItemSync] Duplicate item_code found, updating: {} (keeping last occurrence)", itemCode);
+                }
+                uniqueItems.put(itemCode, dto); // 마지막 데이터로 업데이트
+            }
+            
+            if (duplicateCount > 0) {
+                log.info("[ErpItemSync] Found {} duplicate items in ERP response, applied update (last occurrence)", duplicateCount);
+            }
+
+            for (ErpItemDto dto : uniqueItems.values()) {
+                String itemCode = dto.getItemCode();
+                ErpItem item;
+                boolean isNew = false;
+
+                if (existingItemsMap.containsKey(itemCode)) {
+                    item = existingItemsMap.get(itemCode);
+                    updated++;
+                } else {
+                    item = new ErpItem();
+                    item.setErpItemId(UUID.randomUUID()); // ID 생성 필수!
+                    item.setTenantId(tenantId);
+                    item.setErpCode(erpCode);
+                    item.setItemCode(itemCode);
+                    isNew = true;
+                    created++;
+                }
+
+                // 품목 정보 업데이트
+                updateItemFromDto(item, dto, syncStartTime);
+                
+                // 재고 정보 맵핑
+                if (inventoryBalances.containsKey(itemCode)) {
+                    EcountClient.InventoryBalance balance = inventoryBalances.get(itemCode);
+                    // 재고 수량을 Integer로 변환 (소수점 반올림)
+                    item.setStockQty(balance.getBalanceQty() != null 
+                            ? balance.getBalanceQty().intValue() 
+                            : 0);
+                    // 가용 수량도 동일하게 설정 (별도 API가 없으면 재고 수량과 동일)
+                    item.setAvailableQty(balance.getBalanceQty() != null 
+                            ? balance.getBalanceQty().intValue() 
+                            : 0);
+                    // 창고코드 저장
+                    item.setWarehouseCode(balance.getWarehouseCode());
+                    
+                    log.debug("[ErpItemSync] Mapped inventory for {}: stock={}, warehouse={}", 
+                            itemCode, balance.getBalanceQty(), balance.getWarehouseCode());
+                }
+                
+                // 새 아이템과 기존 아이템 분리
+                if (isNew) {
+                    newItems.add(item);
+                } else {
+                    existingItems.add(item);
+                }
+            }
+
+            // 배치로 저장 (BATCH_SIZE 단위로 처리)
+            int batchSize = 100;
+            
+            // 새 아이템 저장
+            if (!newItems.isEmpty()) {
+                for (int i = 0; i < newItems.size(); i += batchSize) {
+                    int end = Math.min(i + batchSize, newItems.size());
+                    List<ErpItem> batch = newItems.subList(i, end);
+                    erpItemRepository.saveAll(batch);
+                    log.debug("[ErpItemSync] Saved new items batch {}-{} of {}", i + 1, end, newItems.size());
+                }
+            }
+            
+            // 기존 아이템 저장 (업데이트)
+            if (!existingItems.isEmpty()) {
+                for (int i = 0; i < existingItems.size(); i += batchSize) {
+                    int end = Math.min(i + batchSize, existingItems.size());
+                    List<ErpItem> batch = existingItems.subList(i, end);
+                    erpItemRepository.saveAll(batch);
+                    log.debug("[ErpItemSync] Updated existing items batch {}-{} of {}", i + 1, end, existingItems.size());
+                }
+            }
+
+            log.info("[ErpItemSync] Saved {} items (created: {}, updated: {})", 
+                    newItems.size() + existingItems.size(), created, updated);
+
+            // 동기화되지 않은 품목 비활성화
+            int deactivated = erpItemRepository.deactivateNotSyncedItems(
+                    tenantId, erpCode, syncStartTime, LocalDateTime.now());
+
+            SyncResult result = SyncResult.builder()
+                    .totalFetched(allItems.size())
+                    .created(created)
+                    .updated(updated)
+                    .deactivated(deactivated)
+                    .build();
+
+            completeSyncHistory(history, result, null);
+
+            log.info("[ErpItemSync] Completed: fetched={}, created={}, updated={}, deactivated={}",
+                    result.getTotalFetched(), result.getCreated(), result.getUpdated(), result.getDeactivated());
+
+            return result;
+
+        } catch (Exception e) {
+            log.error("[ErpItemSync] Failed for tenant {}", tenantId, e);
+            completeSyncHistory(history, null, e.getMessage());
+            throw new RuntimeException("ERP item sync failed", e);
+        }
+    }
+
+    /**
+     * ERP에서 전체 품목 조회 (페이징 처리)
+     * - 대량의 품목을 처리하기 위해 페이징 방식으로 조회
+     * - 빈 body로 요청 시 전체 품목을 반환하는 경우도 있지만, 안전하게 페이징 처리
+     */
+    private List<ErpItemDto> fetchAllItems(UUID tenantId, ErpClient client) {
+        log.info("[ErpItemSync] Fetching all items from ERP for tenant {}", tenantId);
+        
+        List<ErpItemDto> allItems = new ArrayList<>();
+        int pageSize = 500;  // 페이지당 500개씩 조회
+        int currentPage = 1;
+        boolean hasMore = true;
+        
+        while (hasMore) {
+            log.info("[ErpItemSync] Fetching page {} (size: {})", currentPage, pageSize);
+            
+            ErpItemSearchRequest request = ErpItemSearchRequest.builder()
+                    .page(currentPage)
+                    .size(pageSize)
+                    .build();
+            
+            try {
+                List<ErpItemDto> pageItems = client.getItems(tenantId, request);
+                
+                if (pageItems.isEmpty()) {
+                    log.info("[ErpItemSync] No more items found at page {}", currentPage);
+                    hasMore = false;
+                } else {
+                    allItems.addAll(pageItems);
+                    log.info("[ErpItemSync] Fetched {} items from page {} (total: {})", 
+                            pageItems.size(), currentPage, allItems.size());
+                    
+                    // 가져온 개수가 pageSize보다 적으면 마지막 페이지
+                    if (pageItems.size() < pageSize) {
+                        log.info("[ErpItemSync] Last page reached (items: {} < pageSize: {})", 
+                                pageItems.size(), pageSize);
+                        hasMore = false;
+                    } else {
+                        currentPage++;
+                    }
+                }
+            } catch (Exception e) {
+                log.error("[ErpItemSync] Failed to fetch page {}: {}", currentPage, e.getMessage());
+                // 페이징이 지원되지 않는 API일 수 있으므로, 첫 페이지에서 실패하면 예외를 던짐
+                if (currentPage == 1) {
+                    throw e;
+                } else {
+                    // 중간 페이지에서 실패하면 지금까지 가져온 데이터를 반환
+                    log.warn("[ErpItemSync] Stopping at page {} due to error. Total fetched: {}", 
+                            currentPage, allItems.size());
+                    hasMore = false;
+                }
+            }
+        }
+        
+        log.info("[ErpItemSync] Completed fetching all items. Total: {}", allItems.size());
+        return allItems;
+    }
+
+    /**
+     * 기존 품목 맵 생성 (배치 처리 최적화)
+     */
+    private Map<String, ErpItem> buildExistingItemsMap(UUID tenantId, String erpCode) {
+        List<ErpItem> existingItems = erpItemRepository.findByTenantIdAndErpCodeAndIsActive(
+                tenantId, erpCode, true);
+        
+        // 비활성 품목도 포함 (재활성화를 위해)
+        List<ErpItem> inactiveItems = erpItemRepository.findByTenantIdAndErpCodeAndIsActive(
+                tenantId, erpCode, false);
+        existingItems.addAll(inactiveItems);
+        
+        Map<String, ErpItem> map = new HashMap<>();
+        for (ErpItem item : existingItems) {
+            map.put(item.getItemCode(), item);
+        }
+        
+        log.info("[ErpItemSync] Loaded {} existing items into map", map.size());
+        return map;
+    }
+
+    /**
+     * DTO에서 Entity로 정보 업데이트
+     * - 재고 수량과 창고코드는 별도 API로 조회하므로 여기서는 설정하지 않음
+     */
+    private void updateItemFromDto(ErpItem item, ErpItemDto dto, LocalDateTime syncTime) {
+        item.setItemName(dto.getItemName());
+        item.setItemSpec(dto.getItemSpec());
+        item.setUnit(dto.getUnit());
+        item.setUnitPrice(dto.getUnitPrice());
+        item.setItemType(dto.getItemType());
+        item.setCategoryCode(dto.getCategoryCode());
+        item.setCategoryName(dto.getCategoryName());
+        // 재고 수량과 창고코드는 별도의 재고현황 API로 조회하여 설정
+        // item.setStockQty(), item.setWarehouseCode()는 재고 맵핑 단계에서 처리
+        item.setIsActive(dto.isActive());
+        item.setLastSyncedAt(syncTime);
+
+        try {
+            item.setRawData(objectMapper.writeValueAsString(dto));
+        } catch (Exception e) {
+            log.warn("Failed to serialize raw data for item {}", dto.getItemCode());
+        }
+    }
+
+    @SuppressWarnings("null")
+    private ErpItemSyncHistory createSyncHistory(UUID tenantId, String erpCode, String triggerType) {
+        ErpItemSyncHistory history = ErpItemSyncHistory.builder()
+                .tenantId(tenantId)
+                .erpCode(erpCode)
+                .triggerType(triggerType)
+                .status("RUNNING")
+                .startedAt(LocalDateTime.now())
+                .build();
+        return syncHistoryRepository.save(history);
+    }
+
+    private void completeSyncHistory(ErpItemSyncHistory history, SyncResult result, String errorMessage) {
+        history.setFinishedAt(LocalDateTime.now());
+        
+        if (result != null) {
+            history.setStatus("SUCCESS");
+            history.setTotalFetched(result.getTotalFetched());
+            history.setCreatedCount(result.getCreated());
+            history.setUpdatedCount(result.getUpdated());
+            history.setDeactivatedCount(result.getDeactivated());
+        } else {
+            history.setStatus("FAILED");
+            history.setErrorMessage(errorMessage);
+        }
+
+        syncHistoryRepository.save(history);
+    }
+
+    private ErpClient getClient(String erpCode) {
+        return erpClients.stream()
+                .filter(c -> c.getErpCode().equals(erpCode))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Unsupported ERP: " + erpCode));
+    }
+}
