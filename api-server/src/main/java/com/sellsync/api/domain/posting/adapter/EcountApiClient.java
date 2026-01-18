@@ -12,7 +12,6 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
-import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -52,16 +51,16 @@ public class EcountApiClient implements ErpApiClient {
                     "전표 데이터(requestPayload)가 없습니다", null, false);
             }
 
-            // 2. 페이로드 파싱 및 로깅
-            Map<String, Object> payloadData = objectMapper.readValue(requestPayload, Map.class);
-            log.info("[이카운트 전표 데이터] postingId={}, payload={}", 
-                posting.getPostingId(), payloadData);
+            // 2. 페이로드 로깅 (JSON 문자열 그대로 사용)
+            log.info("[이카운트 전표 데이터] postingId={}, payloadSize={}", 
+                posting.getPostingId(), requestPayload.length());
+            log.debug("[이카운트 전표 JSON] {}", requestPayload);
 
-            // 3. 실제 API 호출
-            String erpDocNo = callEcountApi(posting.getTenantId(), credentials, payloadData);
+            // 3. 실제 API 호출 (JSON 문자열 그대로 전달)
+            String erpDocNo = callEcountApi(posting.getTenantId(), credentials, requestPayload);
 
-            log.info("[이카운트 전표 전송 완료] postingId={}, erpDocNo={}, payloadSize={}", 
-                posting.getPostingId(), erpDocNo, requestPayload.length());
+            log.info("[이카운트 전표 전송 완료] postingId={}, erpDocNo={}", 
+                posting.getPostingId(), erpDocNo);
 
             return erpDocNo;
 
@@ -78,7 +77,7 @@ public class EcountApiClient implements ErpApiClient {
     /**
      * 실제 이카운트 API 호출
      */
-    private String callEcountApi(UUID tenantId, String credentialsJson, Map<String, Object> payloadData) {
+    private String callEcountApi(UUID tenantId, String credentialsJson, String payloadJson) {
         try {
             // 1. credentials 파싱
             EcountCredentials creds = objectMapper.readValue(credentialsJson, EcountCredentials.class);
@@ -97,11 +96,11 @@ public class EcountApiClient implements ErpApiClient {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             
-            // 5. 요청 바디 생성 (payloadData를 그대로 사용)
-            // payloadData는 이미 {"SaleList": [...]} 형식이어야 함
-            HttpEntity<Map<String, Object>> request = new HttpEntity<>(payloadData, headers);
+            // 5. 요청 바디 생성 (JSON 문자열을 그대로 사용)
+            // payloadJson은 이미 {"SaleList": [...]} 형식의 JSON 문자열
+            HttpEntity<String> request = new HttpEntity<>(payloadJson, headers);
             
-            log.debug("[이카운트 API 요청 바디] {}", objectMapper.writeValueAsString(payloadData));
+            log.debug("[이카운트 API 요청 바디] {}", payloadJson);
             
             // 6. API 호출
             ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
@@ -124,7 +123,7 @@ public class EcountApiClient implements ErpApiClient {
                 if (isSessionExpired(root)) {
                     sessionService.invalidateSession(tenantId);
                     log.info("[세션 만료 - 재시도]");
-                    return callEcountApi(tenantId, credentialsJson, payloadData);
+                    return callEcountApi(tenantId, credentialsJson, payloadJson);
                 }
                 
                 throw new ErpApiException("ECOUNT", extractErrorCode(root), errorMsg);

@@ -116,11 +116,13 @@ public class EcountPostingBuilder {
     /**
      * UPLOAD_SER_NO 생성 (주문 단위로 유니크)
      * 주문 시간 기반으로 생성 (초 단위)
+     * 
+     * 타입: SMALLINT(4,0) - 허용 범위 0~9999 (최대 4자리)
      */
     private int generateUploadSerNo(Order order) {
-        // 주문일시를 기반으로 유니크한 번호 생성 (밀리초의 마지막 9자리)
+        // 주문일시를 기반으로 유니크한 번호 생성 (4자리로 제한)
         long timestamp = order.getOrderedAt().toEpochSecond(java.time.ZoneOffset.UTC);
-        return (int) (timestamp % 1_000_000_000);
+        return (int) (timestamp % 10000);  // 0~9999 범위 (4자리)
     }
     
     /**

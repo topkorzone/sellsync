@@ -268,6 +268,21 @@ public class SettlementCollectionService {
             // productOrderType에 따라 settlementType 결정
             SettlementType settlementType = determineSettlementType(element.getProductOrderType());
             
+            // settlementType에 따라 올바른 수수료 금액 사용
+            long commissionAmount;
+            if (settlementType == SettlementType.SHIPPING_FEE) {
+                // 배송비 수수료: shippingSettleAmount의 약 1.9%
+                Long shippingSettleAmount = element.getShippingSettleAmount();
+                if (shippingSettleAmount != null && shippingSettleAmount > 0) {
+                    commissionAmount = Math.round(shippingSettleAmount * 0.019);
+                } else {
+                    commissionAmount = 0L;
+                }
+            } else {
+                // 상품 수수료: totalCommission 사용
+                commissionAmount = element.getTotalCommission();
+            }
+            
             SettlementOrder so = SettlementOrder.builder()
                     .tenantId(tenantId)
                     .settlementBatch(batch)
@@ -277,7 +292,7 @@ public class SettlementCollectionService {
                     .marketplaceOrderId(element.getOrderId())
                     .grossSalesAmount(BigDecimal.valueOf(
                         element.getPaySettleAmount() != null ? element.getPaySettleAmount() : 0L))
-                    .commissionAmount(BigDecimal.valueOf(element.getTotalCommission()))
+                    .commissionAmount(BigDecimal.valueOf(commissionAmount))
                     .pgFeeAmount(BigDecimal.ZERO)
                     .shippingFeeCharged(BigDecimal.ZERO)
                     .shippingFeeSettled(BigDecimal.ZERO)

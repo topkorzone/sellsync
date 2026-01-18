@@ -277,8 +277,8 @@ public class SaleFormService {
             throw new IllegalStateException("Some lines are already posted: " + postedLineIds);
         }
 
-        // UPLOAD_SER_NO 생성
-        String uploadSerNo = UUID.randomUUID().toString();
+        // UPLOAD_SER_NO 생성 (SMALLINT 4자리: 0~9999)
+        int baseUploadSerNo = Math.abs(UUID.randomUUID().hashCode()) % 10000;
         
         // EcountSaleFormDto 리스트 생성
         List<EcountSaleFormDto> forms = new ArrayList<>();
@@ -286,16 +286,16 @@ public class SaleFormService {
             SaleFormLine line = lines.get(i);
             
             // 한 전표로 묶을지 여부에 따라 UPLOAD_SER_NO 설정
-            String lineUploadSerNo = Boolean.TRUE.equals(request.getMergeToSingleDocument()) 
-                    ? uploadSerNo 
-                    : uploadSerNo + "-" + i;
+            int lineUploadSerNo = Boolean.TRUE.equals(request.getMergeToSingleDocument()) 
+                    ? baseUploadSerNo 
+                    : (baseUploadSerNo + i) % 10000;  // 4자리 범위 유지
             
             EcountSaleFormDto form = convertToEcountForm(line, lineUploadSerNo);
             forms.add(form);
             
             // 라인 상태 업데이트 (PENDING)
             line.setStatus(SaleFormLineStatus.PENDING);
-            line.setUploadSerNo(lineUploadSerNo);
+            line.setUploadSerNo(String.valueOf(lineUploadSerNo));  // DB 저장용 문자열 변환
         }
 
         lineRepository.saveAll(lines);
@@ -376,9 +376,9 @@ public class SaleFormService {
                 .build();
     }
 
-    private EcountSaleFormDto convertToEcountForm(SaleFormLine line, String uploadSerNo) {
+    private EcountSaleFormDto convertToEcountForm(SaleFormLine line, int uploadSerNo) {
         return EcountSaleFormDto.builder()
-                .uploadSerNo(uploadSerNo)
+                .uploadSerNo(String.valueOf(uploadSerNo))
                 .ioDate(line.getIoDate())
                 .cust(line.getCust())
                 .custDes(line.getCustDes())
