@@ -1,6 +1,7 @@
 package com.sellsync.api.domain.settlement.adapter;
 
 import com.sellsync.api.domain.settlement.dto.MarketplaceSettlementData;
+import com.sellsync.api.domain.settlement.dto.smartstore.DailySettlementElement;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -47,6 +48,18 @@ public class CoupangSettlementClient implements MarketplaceSettlementClient {
         log.info("[Mock] 쿠팡 정산 데이터 수집 완료: {} 건", settlements.size());
 
         return settlements;
+    }
+
+    @Override
+    public List<DailySettlementElement> fetchSettlementElements(LocalDate startDate, 
+                                                                LocalDate endDate, 
+                                                                String credentials) {
+        log.info("[Mock] 쿠팡 정산 요소 수집: {} ~ {}", startDate, endDate);
+        
+        // 쿠팡은 아직 구현되지 않았으므로 빈 리스트 반환
+        log.warn("[Mock] 쿠팡 정산 요소 수집은 아직 구현되지 않았습니다.");
+        
+        return new ArrayList<>();
     }
 
     @Override

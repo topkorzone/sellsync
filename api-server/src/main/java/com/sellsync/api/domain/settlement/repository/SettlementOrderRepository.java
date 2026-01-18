@@ -6,10 +6,13 @@ import com.sellsync.api.domain.settlement.enums.SettlementType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -51,5 +54,41 @@ public interface SettlementOrderRepository extends JpaRepository<SettlementOrder
         UUID tenantId,
         Marketplace marketplace,
         Pageable pageable
+    );
+
+    // ============================================================
+    // 벌크 처리용 메서드 (배치 최적화)
+    // ============================================================
+
+    /**
+     * 배치 ID로 정산 주문 목록 조회
+     * 
+     * @param settlementBatchId 정산 배치 ID
+     * @return 정산 주문 목록
+     */
+    List<SettlementOrder> findBySettlementBatchSettlementBatchId(UUID settlementBatchId);
+    
+    /**
+     * 주문 ID 목록으로 정산 주문 존재 여부 확인
+     * 멱등성 체크에 사용 (중복 등록 방지)
+     * 
+     * @param tenantId 테넌트 ID
+     * @param orderIds 주문 ID 목록
+     * @return 이미 등록된 주문 ID 목록
+     */
+    @Query("SELECT so.orderId FROM SettlementOrder so WHERE so.orderId IN :orderIds AND so.tenantId = :tenantId")
+    List<UUID> findExistingOrderIds(@Param("tenantId") UUID tenantId, @Param("orderIds") List<UUID> orderIds);
+
+    /**
+     * 테넌트 + 배치 ID 목록으로 정산 주문 조회
+     * 멱등성 체크에 사용 (중복 INSERT 방지)
+     * 
+     * @param tenantId 테넌트 ID
+     * @param settlementBatchIds 정산 배치 ID 목록
+     * @return 정산 주문 목록
+     */
+    List<SettlementOrder> findByTenantIdAndSettlementBatch_SettlementBatchIdIn(
+        UUID tenantId, 
+        Set<UUID> settlementBatchIds
     );
 }

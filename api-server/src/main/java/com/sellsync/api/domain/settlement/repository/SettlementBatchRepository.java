@@ -19,7 +19,7 @@ import java.util.UUID;
  * SettlementBatch Repository
  */
 @Repository
-public interface SettlementBatchRepository extends JpaRepository<SettlementBatch, UUID> {
+public interface SettlementBatchRepository extends JpaRepository<SettlementBatch, UUID>, SettlementBatchCustomRepository {
 
     /**
      * 멱등성 키로 정산 배치 조회 (ADR-0001)

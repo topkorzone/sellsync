@@ -1,11 +1,16 @@
 package com.sellsync.api.scheduler;
 
 import com.sellsync.api.domain.erp.service.ErpConfigService;
+import com.sellsync.api.domain.order.entity.Order;
+import com.sellsync.api.domain.order.enums.SettlementCollectionStatus;
+import com.sellsync.api.domain.order.repository.OrderRepository;
 import com.sellsync.api.domain.posting.dto.PostingResponse;
+import com.sellsync.api.domain.posting.service.OrderSettlementPostingService;
 import com.sellsync.api.domain.posting.service.PostingExecutor;
 import com.sellsync.api.domain.posting.service.PostingExecutorService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -32,6 +37,8 @@ public class PostingScheduler {
     private final PostingExecutorService postingExecutorService;
     private final PostingExecutor postingExecutor;
     private final ErpConfigService erpConfigService;
+    private final OrderSettlementPostingService orderSettlementPostingService;
+    private final OrderRepository orderRepository;
 
     /**
      * READY 상태 전표 자동 전송 (조건부 실행)
@@ -139,6 +146,65 @@ public class PostingScheduler {
 
         } catch (Exception e) {
             log.error("[스케줄러] 재시도 전표 전송 실패: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 정산 수집된 주문의 전표 자동 생성
+     * 
+     * 스케줄: 매 10분마다 실행
+     * 
+     * 로직:
+     * - settlement_status = COLLECTED 인 주문 조회 (최대 100건)
+     * - 각 주문에 대해 OrderSettlementPostingService.createPostingsForSettledOrder() 호출
+     * - 성공/실패 카운트 로깅
+     * - 개별 주문 실패 시에도 다음 주문 계속 처리
+     */
+    @Scheduled(fixedDelay = 600000, initialDelay = 60000) // 10분마다, 시작 후 1분 대기
+    public void createPostingsForSettledOrders() {
+        try {
+            log.debug("[스케줄러] 정산 전표 생성 체크");
+
+            // settlement_status = COLLECTED 인 주문 조회 (최대 100건)
+            List<Order> settledOrders = orderRepository.findBySettlementStatusOrderByPaidAtAsc(
+                    SettlementCollectionStatus.COLLECTED, 
+                    PageRequest.of(0, 100)
+            );
+
+            if (settledOrders.isEmpty()) {
+                log.debug("[스케줄러] 정산 전표 생성 대상 없음");
+                return;
+            }
+
+            log.info("[스케줄러] 정산 전표 생성 시작: 대상 주문 {} 건", settledOrders.size());
+
+            int successCount = 0;
+            int failureCount = 0;
+            String erpCode = "ECOUNT";
+
+            // 각 주문에 대해 전표 생성 시도
+            for (Order order : settledOrders) {
+                try {
+                    List<PostingResponse> createdPostings = orderSettlementPostingService
+                            .createPostingsForSettledOrder(order.getOrderId(), erpCode);
+                    
+                    successCount++;
+                    log.debug("[정산 전표 생성 성공] orderId={}, 생성된 전표 수={}", 
+                            order.getOrderId(), createdPostings.size());
+                    
+                } catch (Exception e) {
+                    failureCount++;
+                    log.error("[정산 전표 생성 실패] orderId={}, error={}", 
+                            order.getOrderId(), e.getMessage(), e);
+                    // 개별 실패는 로그만 남기고 다음 주문 계속 처리
+                }
+            }
+
+            log.info("[스케줄러] 정산 전표 생성 완료: 성공 {} 건, 실패 {} 건", 
+                    successCount, failureCount);
+
+        } catch (Exception e) {
+            log.error("[스케줄러] 정산 전표 생성 배치 실패: {}", e.getMessage(), e);
         }
     }
 

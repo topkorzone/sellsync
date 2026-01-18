@@ -33,6 +33,9 @@ public class SettlementService {
     /**
      * 정산 배치 생성 또는 조회 (멱등성 보장)
      * 
+     * 전략: 먼저 조회 시도 → 없으면 생성
+     * (이전 방식의 try-catch는 트랜잭션 커밋 시점 오류를 잡지 못함)
+     * 
      * @param request 정산 배치 생성 요청
      * @return 생성/조회된 정산 배치
      */
@@ -41,44 +44,40 @@ public class SettlementService {
         log.info("[정산 배치 생성/조회] tenantId={}, marketplace={}, cycle={}", 
             request.getTenantId(), request.getMarketplace(), request.getSettlementCycle());
 
-        try {
-            // 1. 신규 배치 생성
-            SettlementBatch batch = SettlementBatch.builder()
-                    .tenantId(request.getTenantId())
-                    .marketplace(request.getMarketplace())
-                    .settlementCycle(request.getSettlementCycle())
-                    .settlementPeriodStart(request.getSettlementPeriodStart())
-                    .settlementPeriodEnd(request.getSettlementPeriodEnd())
-                    .marketplaceSettlementId(request.getMarketplaceSettlementId())
-                    .marketplacePayload(request.getMarketplacePayload())
-                    .settlementStatus(SettlementStatus.COLLECTED)
-                    .build();
+        // 1. 먼저 기존 배치 조회
+        return settlementBatchRepository
+                .findByTenantIdAndMarketplaceAndSettlementCycle(
+                    request.getTenantId(),
+                    request.getMarketplace(),
+                    request.getSettlementCycle()
+                )
+                .map(existing -> {
+                    log.info("[정산 배치 이미 존재] settlementBatchId={}, status={}", 
+                        existing.getSettlementBatchId(), 
+                        existing.getSettlementStatus());
+                    return SettlementBatchResponse.from(existing);
+                })
+                .orElseGet(() -> {
+                    // 2. 없으면 신규 생성
+                    log.info("[정산 배치 신규 생성] cycle={}", request.getSettlementCycle());
+                    
+                    SettlementBatch batch = SettlementBatch.builder()
+                            .tenantId(request.getTenantId())
+                            .marketplace(request.getMarketplace())
+                            .settlementCycle(request.getSettlementCycle())
+                            .settlementPeriodStart(request.getSettlementPeriodStart())
+                            .settlementPeriodEnd(request.getSettlementPeriodEnd())
+                            .marketplaceSettlementId(request.getMarketplaceSettlementId())
+                            .marketplacePayload(request.getMarketplacePayload())
+                            .settlementStatus(SettlementStatus.COLLECTED)
+                            .build();
 
-            SettlementBatch saved = settlementBatchRepository.save(batch);
-            
-            log.info("[정산 배치 생성 완료] settlementBatchId={}", saved.getSettlementBatchId());
-            
-            return SettlementBatchResponse.from(saved);
-
-        } catch (DataIntegrityViolationException e) {
-            // 2. 멱등성 제약 위반 → 기존 배치 조회
-            log.info("[정산 배치 이미 존재] 기존 배치 조회");
-            
-            SettlementBatch existing = settlementBatchRepository
-                    .findByTenantIdAndMarketplaceAndSettlementCycle(
-                        request.getTenantId(),
-                        request.getMarketplace(),
-                        request.getSettlementCycle()
-                    )
-                    .orElseThrow(() -> new SettlementBatchNotFoundException(
-                        "Settlement batch not found after constraint violation"
-                    ));
-
-            log.info("[기존 정산 배치 조회 완료] settlementBatchId={}, status={}", 
-                existing.getSettlementBatchId(), existing.getSettlementStatus());
-
-            return SettlementBatchResponse.from(existing);
-        }
+                    SettlementBatch saved = settlementBatchRepository.save(batch);
+                    
+                    log.info("[정산 배치 생성 완료] settlementBatchId={}", saved.getSettlementBatchId());
+                    
+                    return SettlementBatchResponse.from(saved);
+                });
     }
 
     /**

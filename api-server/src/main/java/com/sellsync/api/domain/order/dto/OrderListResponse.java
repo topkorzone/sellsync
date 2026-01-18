@@ -60,6 +60,9 @@ public class OrderListResponse {
     // 택배사명
     private String carrierName;
     
+    // 정산 수집 상태
+    private String settlementStatus;
+    
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -89,6 +92,7 @@ public class OrderListResponse {
                 .erpDocumentNo(null)  // 서비스에서 별도로 설정
                 .trackingNo(null)     // 서비스에서 별도로 설정
                 .carrierName(null)    // 서비스에서 별도로 설정
+                .settlementStatus(order.getSettlementStatus() != null ? order.getSettlementStatus().name() : "NOT_COLLECTED")
                 .createdAt(order.getCreatedAt())
                 .updatedAt(order.getUpdatedAt())
                 .build();

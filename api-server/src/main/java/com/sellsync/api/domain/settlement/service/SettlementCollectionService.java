@@ -1,31 +1,38 @@
 package com.sellsync.api.domain.settlement.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sellsync.api.domain.order.entity.Order;
 import com.sellsync.api.domain.order.enums.Marketplace;
+import com.sellsync.api.domain.order.repository.OrderRepository;
 import com.sellsync.api.domain.settlement.adapter.MarketplaceSettlementClient;
-import com.sellsync.api.domain.settlement.dto.CreateSettlementBatchRequest;
-import com.sellsync.api.domain.settlement.dto.MarketplaceSettlementData;
-import com.sellsync.api.domain.settlement.dto.SettlementBatchResponse;
+import com.sellsync.api.domain.settlement.dto.SettlementCollectionResult;
+import com.sellsync.api.domain.settlement.dto.smartstore.DailySettlementElement;
 import com.sellsync.api.domain.settlement.entity.SettlementBatch;
 import com.sellsync.api.domain.settlement.entity.SettlementOrder;
+import com.sellsync.api.domain.settlement.enums.SettlementStatus;
 import com.sellsync.api.domain.settlement.enums.SettlementType;
 import com.sellsync.api.domain.settlement.repository.SettlementBatchRepository;
+import com.sellsync.api.domain.settlement.repository.SettlementOrderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
- * 정산 수집 서비스
+ * 정산 수집 서비스 (리팩토링 버전)
  * 
  * 역할:
  * - 마켓 정산 API 연동
- * - SettlementBatch/SettlementOrder 생성
- * - 금액 집계 및 검증
+ * - 주문별 정산 내역 수집 및 처리
+ * - 주문 테이블에 수수료 정보 업데이트
+ * - 정산 배치 및 정산 주문 생성
  */
 @Slf4j
 @Service
@@ -33,118 +40,304 @@ import java.util.UUID;
 public class SettlementCollectionService {
 
     private final Map<String, MarketplaceSettlementClient> marketplaceSettlementClients;
-    private final SettlementService settlementService;
     private final SettlementBatchRepository settlementBatchRepository;
+    private final SettlementOrderRepository settlementOrderRepository;
+    private final OrderRepository orderRepository;
+    private final ObjectMapper objectMapper;
 
     /**
-     * 정산 데이터 수집 및 배치 생성
+     * 정산 데이터 수집 및 벌크 처리 (메인 메서드)
      * 
-     * @param tenantId 테넌트 ID
-     * @param marketplace 마켓플레이스
-     * @param startDate 시작일
-     * @param endDate 종료일
-     * @param credentials 인증 정보
-     * @return 생성된 정산 배치 목록
+     * 플로우:
+     * 1. 마켓 API에서 정산 데이터 수집
+     * 2. orderId로 기존 주문 매칭
+     * 3. 주문 테이블에 수수료 정보 벌크 업데이트
+     * 4. SettlementBatch 벌크 UPSERT
+     * 5. SettlementOrder 벌크 UPSERT
      */
     @Transactional
-    public List<SettlementBatchResponse> collectSettlements(UUID tenantId,
-                                                            Marketplace marketplace,
-                                                            LocalDate startDate,
-                                                            LocalDate endDate,
-                                                            String credentials) {
-        log.info("[정산 수집 시작] tenantId={}, marketplace={}, period={} ~ {}", 
-            tenantId, marketplace, startDate, endDate);
+    public SettlementCollectionResult collectAndProcessSettlements(
+            UUID tenantId,
+            UUID storeId,
+            Marketplace marketplace,
+            LocalDate startDate,
+            LocalDate endDate,
+            String credentials) {
+        
+        log.info("[정산 수집 시작] tenantId={}, storeId={}, marketplace={}, period={} ~ {}", 
+            tenantId, storeId, marketplace, startDate, endDate);
 
-        // 1. 마켓 클라이언트 선택
+        // 1. 마켓 API에서 정산 데이터 수집
         MarketplaceSettlementClient client = getSettlementClient(marketplace.name());
-
-        // 2. 정산 데이터 수집
-        List<MarketplaceSettlementData> settlementDataList = client.fetchSettlements(
-            startDate, endDate, credentials
-        );
-
-        log.info("[정산 데이터 수집 완료] count={}", settlementDataList.size());
-
-        // 3. SettlementBatch 생성
-        List<SettlementBatchResponse> batches = settlementDataList.stream()
-                .map(data -> createSettlementBatch(tenantId, marketplace, data))
-                .toList();
-
-        log.info("[정산 배치 생성 완료] count={}", batches.size());
-
-        return batches;
-    }
-
-    /**
-     * 정산 배치 생성 (단건)
-     */
-    @Transactional
-    public SettlementBatchResponse createSettlementBatch(UUID tenantId,
-                                                         Marketplace marketplace,
-                                                         MarketplaceSettlementData data) {
-        log.info("[정산 배치 생성] settlementCycle={}", data.getSettlementCycle());
-
-        // 1. SettlementBatch 생성 요청
-        CreateSettlementBatchRequest request = CreateSettlementBatchRequest.builder()
-                .tenantId(tenantId)
-                .marketplace(marketplace)
-                .settlementCycle(data.getSettlementCycle())
-                .settlementPeriodStart(data.getSettlementPeriodStart())
-                .settlementPeriodEnd(data.getSettlementPeriodEnd())
-                .marketplaceSettlementId(data.getSettlementId())
-                .marketplacePayload(data.getRawPayload())
-                .build();
-
-        // 2. SettlementBatch 생성 (멱등성 보장)
-        SettlementBatchResponse batch = settlementService.createOrGet(request);
-
-        // 3. SettlementOrder 생성
-        if (data.getOrders() != null && !data.getOrders().isEmpty()) {
-            createSettlementOrders(batch.getSettlementBatchId(), tenantId, marketplace, data.getOrders());
+        List<DailySettlementElement> elements = client.fetchSettlementElements(startDate, endDate, credentials);
+        
+        log.info("[정산 데이터 수집 완료] count={}", elements.size());
+        
+        if (elements.isEmpty()) {
+            return SettlementCollectionResult.empty();
         }
 
-        // 4. 금액 집계
-        SettlementBatch batchEntity = settlementBatchRepository.findById(batch.getSettlementBatchId())
-                .orElseThrow();
+        // 2. orderId로 기존 주문 조회 (벌크)
+        List<String> marketplaceOrderIds = elements.stream()
+                .map(DailySettlementElement::getOrderId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
         
-        batchEntity.calculateAggregates();
-        settlementBatchRepository.save(batchEntity);
+        Map<String, Order> orderMap = orderRepository
+                .findByTenantIdAndMarketplaceOrderIdIn(tenantId, marketplaceOrderIds)
+                .stream()
+                .collect(Collectors.toMap(Order::getMarketplaceOrderId, o -> o));
+        
+        log.info("[주문 매칭 완료] 요청={}, 매칭={}", marketplaceOrderIds.size(), orderMap.size());
 
-        log.info("[정산 배치 생성 완료] settlementBatchId={}, orderCount={}, netPayout={}", 
-            batch.getSettlementBatchId(), 
-            data.getOrders().size(),
-            batchEntity.getNetPayoutAmount());
+        // 3. 주문 테이블에 수수료 정보 벌크 업데이트
+        int updatedOrders = bulkUpdateOrderSettlementInfo(tenantId, elements, orderMap, startDate);
+        log.info("[주문 수수료 업데이트 완료] count={}", updatedOrders);
 
-        return SettlementBatchResponse.from(batchEntity);
+        // 4. SettlementBatch 생성/업데이트 (일별 배치)
+        Map<LocalDate, SettlementBatch> batchMap = createOrUpdateBatches(
+            tenantId, storeId, marketplace, elements, startDate, endDate
+        );
+        log.info("[정산 배치 처리 완료] count={}", batchMap.size());
+
+        // 5. SettlementOrder 벌크 UPSERT
+        int createdOrders = bulkUpsertSettlementOrders(tenantId, marketplace, elements, orderMap, batchMap);
+        log.info("[정산 주문 생성 완료] count={}", createdOrders);
+
+        return SettlementCollectionResult.builder()
+                .totalElements(elements.size())
+                .matchedOrders(orderMap.size())
+                .updatedOrders(updatedOrders)
+                .createdBatches(batchMap.size())
+                .createdSettlementOrders(createdOrders)
+                .build();
     }
 
     /**
-     * 정산 주문 라인 생성
+     * 주문 테이블에 정산 정보 벌크 업데이트
      */
-    private void createSettlementOrders(UUID settlementBatchId,
-                                       UUID tenantId,
-                                       Marketplace marketplace,
-                                       List<MarketplaceSettlementData.SettlementOrderData> orders) {
-        SettlementBatch batch = settlementBatchRepository.findById(settlementBatchId)
-                .orElseThrow();
+    private int bulkUpdateOrderSettlementInfo(
+            UUID tenantId,
+            List<DailySettlementElement> elements,
+            Map<String, Order> orderMap,
+            LocalDate settlementDate) {
+        
+        // 매칭된 주문만 필터링
+        List<DailySettlementElement> matchedElements = elements.stream()
+                .filter(e -> e.getOrderId() != null && orderMap.containsKey(e.getOrderId()))
+                .toList();
+        
+        if (matchedElements.isEmpty()) {
+            return 0;
+        }
 
-        for (MarketplaceSettlementData.SettlementOrderData orderData : orders) {
-            SettlementOrder order = SettlementOrder.builder()
+        // 배열 준비
+        String[] orderIds = new String[matchedElements.size()];
+        Long[] commissionAmounts = new Long[matchedElements.size()];
+        Long[] expectedSettlementAmounts = new Long[matchedElements.size()];
+        LocalDate[] settlementDates = new LocalDate[matchedElements.size()];
+
+        for (int i = 0; i < matchedElements.size(); i++) {
+            DailySettlementElement e = matchedElements.get(i);
+            orderIds[i] = e.getOrderId();
+            commissionAmounts[i] = e.getTotalCommission();
+            expectedSettlementAmounts[i] = e.getCalculatedSettleAmount();
+            settlementDates[i] = settlementDate;
+        }
+
+        return orderRepository.bulkUpdateSettlementInfo(
+            tenantId, orderIds, commissionAmounts, expectedSettlementAmounts, settlementDates
+        );
+    }
+
+    /**
+     * 정산 배치 생성 또는 업데이트 (일별 그룹화)
+     */
+    private Map<LocalDate, SettlementBatch> createOrUpdateBatches(
+            UUID tenantId,
+            UUID storeId,
+            Marketplace marketplace,
+            List<DailySettlementElement> elements,
+            LocalDate startDate,
+            LocalDate endDate) {
+        
+        // 날짜별 그룹화
+        Map<LocalDate, List<DailySettlementElement>> groupedByDate = elements.stream()
+                .filter(e -> e.getPayDate() != null)
+                .collect(Collectors.groupingBy(e -> LocalDate.parse(e.getPayDate())));
+
+        List<SettlementBatch> batches = new ArrayList<>();
+        
+        for (Map.Entry<LocalDate, List<DailySettlementElement>> entry : groupedByDate.entrySet()) {
+            LocalDate payDate = entry.getKey();
+            List<DailySettlementElement> dayElements = entry.getValue();
+            
+            // 집계 계산
+            BigDecimal grossSales = dayElements.stream()
+                    .map(e -> BigDecimal.valueOf(e.getPaySettleAmount() != null ? e.getPaySettleAmount() : 0L))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            
+            BigDecimal totalCommission = dayElements.stream()
+                    .map(e -> BigDecimal.valueOf(e.getTotalCommission()))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            
+            BigDecimal netPayout = dayElements.stream()
+                    .map(e -> BigDecimal.valueOf(e.getCalculatedSettleAmount()))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            String settlementCycle = payDate.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+
+            SettlementBatch batch = SettlementBatch.builder()
                     .tenantId(tenantId)
-                    .orderId(UUID.fromString(orderData.getOrderId()))
+                    .marketplace(marketplace)
+                    .settlementCycle(settlementCycle)
+                    .settlementPeriodStart(payDate)
+                    .settlementPeriodEnd(payDate)
+                    .settlementStatus(SettlementStatus.COLLECTED)
+                    .totalOrderCount(dayElements.size())
+                    .grossSalesAmount(grossSales)
+                    .totalCommissionAmount(totalCommission)
+                    .totalPgFeeAmount(BigDecimal.ZERO)
+                    .totalShippingCharged(BigDecimal.ZERO)
+                    .totalShippingSettled(BigDecimal.ZERO)
+                    .expectedPayoutAmount(netPayout)
+                    .netPayoutAmount(netPayout)
+                    .collectedAt(LocalDateTime.now())
+                    .build();
+            
+            batches.add(batch);
+        }
+
+        // 벌크 UPSERT
+        settlementBatchRepository.bulkUpsert(batches);
+
+        // 저장된 배치 조회하여 Map 반환
+        return batches.stream()
+                .map(b -> settlementBatchRepository
+                        .findByTenantIdAndMarketplaceAndSettlementCycle(
+                            b.getTenantId(), b.getMarketplace(), b.getSettlementCycle())
+                        .orElse(null))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toMap(
+                    b -> b.getSettlementPeriodStart(),
+                    b -> b
+                ));
+    }
+
+    /**
+     * SettlementOrder 벌크 UPSERT
+     */
+    private int bulkUpsertSettlementOrders(
+            UUID tenantId,
+            Marketplace marketplace,
+            List<DailySettlementElement> elements,
+            Map<String, Order> orderMap,
+            Map<LocalDate, SettlementBatch> batchMap) {
+        
+        List<SettlementOrder> settlementOrders = new ArrayList<>();
+
+        for (DailySettlementElement element : elements) {
+            if (element.getOrderId() == null || element.getPayDate() == null) {
+                continue;
+            }
+
+            Order order = orderMap.get(element.getOrderId());
+            if (order == null) {
+                continue; // 매칭되는 주문 없음
+            }
+
+            LocalDate payDate = LocalDate.parse(element.getPayDate());
+            SettlementBatch batch = batchMap.get(payDate);
+            if (batch == null) {
+                continue;
+            }
+
+            SettlementOrder so = SettlementOrder.builder()
+                    .tenantId(tenantId)
+                    .settlementBatch(batch)
+                    .orderId(order.getOrderId())
                     .settlementType(SettlementType.SALES)
                     .marketplace(marketplace)
-                    .marketplaceOrderId(orderData.getMarketplaceOrderId())
-                    .grossSalesAmount(orderData.getGrossSalesAmount())
-                    .commissionAmount(orderData.getCommissionAmount())
-                    .pgFeeAmount(orderData.getPgFeeAmount())
-                    .shippingFeeCharged(orderData.getShippingFeeCharged())
-                    .shippingFeeSettled(orderData.getShippingFeeSettled())
-                    .netPayoutAmount(orderData.getNetPayoutAmount())
+                    .marketplaceOrderId(element.getOrderId())
+                    .grossSalesAmount(BigDecimal.valueOf(
+                        element.getPaySettleAmount() != null ? element.getPaySettleAmount() : 0L))
+                    .commissionAmount(BigDecimal.valueOf(element.getTotalCommission()))
+                    .pgFeeAmount(BigDecimal.ZERO)
+                    .shippingFeeCharged(BigDecimal.ZERO)
+                    .shippingFeeSettled(BigDecimal.ZERO)
+                    .netPayoutAmount(BigDecimal.valueOf(element.getCalculatedSettleAmount()))
+                    .marketplacePayload(convertToJson(element))
                     .build();
 
-            order.calculateNetPayoutAmount();
-            batch.addSettlementOrder(order);
+            settlementOrders.add(so);
+        }
+
+        if (settlementOrders.isEmpty()) {
+            return 0;
+        }
+
+        // ✅ 핵심 수정: 기존 데이터 조회하여 중복 제외
+        Set<UUID> batchIds = batchMap.values().stream()
+                .map(SettlementBatch::getSettlementBatchId)
+                .collect(Collectors.toSet());
+        
+        // 이미 존재하는 멱등성 키 조회
+        Set<String> existingKeys = settlementOrderRepository
+                .findByTenantIdAndSettlementBatch_SettlementBatchIdIn(tenantId, batchIds)
+                .stream()
+                .map(so -> buildIdempotencyKey(so.getTenantId(), 
+                        so.getSettlementBatch().getSettlementBatchId(),
+                        so.getOrderId(), 
+                        so.getSettlementType()))
+                .collect(Collectors.toSet());
+        
+        log.info("[정산 주문] 기존 데이터 수: {}", existingKeys.size());
+
+        // 중복 제외 (DB 기존 데이터 + 현재 배치 내 중복 모두 처리)
+        Set<String> processedKeys = new HashSet<>(existingKeys);
+        List<SettlementOrder> newOrders = new ArrayList<>();
+
+        for (SettlementOrder so : settlementOrders) {
+            String key = buildIdempotencyKey(so.getTenantId(),
+                    so.getSettlementBatch().getSettlementBatchId(),
+                    so.getOrderId(),
+                    so.getSettlementType());
+            
+            if (!processedKeys.contains(key)) {
+                processedKeys.add(key);  // 현재 배치 내 중복 방지
+                newOrders.add(so);
+            }
+        }
+        
+        log.info("[정산 주문] 신규 저장 대상: {} 건 (전체 {} 건 중 {} 건 중복 제외)", 
+                newOrders.size(), settlementOrders.size(), settlementOrders.size() - newOrders.size());
+
+        if (newOrders.isEmpty()) {
+            return 0;
+        }
+
+        // 벌크 저장 (saveAll 사용, 추후 Native Query로 최적화 가능)
+        List<SettlementOrder> saved = settlementOrderRepository.saveAll(newOrders);
+        return saved.size();
+    }
+
+    /**
+     * 멱등성 키 생성
+     */
+    private String buildIdempotencyKey(UUID tenantId, UUID batchId, UUID orderId, SettlementType type) {
+        return tenantId + "_" + batchId + "_" + orderId + "_" + type;
+    }
+
+    /**
+     * 객체를 JSON 문자열로 변환
+     */
+    private String convertToJson(Object obj) {
+        try {
+            return objectMapper.writeValueAsString(obj);
+        } catch (Exception e) {
+            log.warn("[정산 수집] JSON 변환 실패", e);
+            return "{}";
         }
     }
 

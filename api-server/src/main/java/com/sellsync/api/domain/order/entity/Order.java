@@ -2,11 +2,13 @@ package com.sellsync.api.domain.order.entity;
 
 import com.sellsync.api.domain.order.enums.Marketplace;
 import com.sellsync.api.domain.order.enums.OrderStatus;
+import com.sellsync.api.domain.order.enums.SettlementCollectionStatus;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -106,6 +108,18 @@ public class Order {
     
     @Column(name = "expected_settlement_amount")
     private Long expectedSettlementAmount;  // 정산 예정 금액
+    
+    // 정산 수집 상태
+    @Column(name = "settlement_status")
+    @Enumerated(EnumType.STRING)
+    @Builder.Default
+    private SettlementCollectionStatus settlementStatus = SettlementCollectionStatus.NOT_COLLECTED;
+    
+    @Column(name = "settlement_collected_at")
+    private LocalDateTime settlementCollectedAt;
+    
+    @Column(name = "settlement_date")
+    private LocalDate settlementDate;
 
     // 배송비 상세
     @Column(name = "shipping_fee_type", length = 30)
@@ -179,5 +193,22 @@ public class Order {
     public void addItem(OrderItem item) {
         items.add(item);
         item.setOrder(this);
+    }
+    
+    /**
+     * 정산 수집 완료 마킹
+     * @param settlementDate 정산일
+     */
+    public void markSettlementCollected(LocalDate settlementDate) {
+        this.settlementStatus = SettlementCollectionStatus.COLLECTED;
+        this.settlementCollectedAt = LocalDateTime.now();
+        this.settlementDate = settlementDate;
+    }
+    
+    /**
+     * 전표 생성 완료 마킹
+     */
+    public void markSettlementPosted() {
+        this.settlementStatus = SettlementCollectionStatus.POSTED;
     }
 }

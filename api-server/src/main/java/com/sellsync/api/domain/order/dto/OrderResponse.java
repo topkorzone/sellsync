@@ -1,6 +1,7 @@
 package com.sellsync.api.domain.order.dto;
 
 import com.sellsync.api.domain.order.entity.Order;
+import com.sellsync.api.domain.order.entity.OrderItem;
 import com.sellsync.api.domain.order.enums.Marketplace;
 import com.sellsync.api.domain.order.enums.OrderStatus;
 import lombok.AllArgsConstructor;
@@ -8,8 +9,11 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * 주문 응답 DTO
@@ -47,6 +51,7 @@ public class OrderResponse {
     private Long totalShippingAmount;
     private Long totalDiscountAmount;
     private Long totalPaidAmount;
+    private Long commissionAmount;
     private String paymentMethod;
     
     // Shipping
@@ -57,6 +62,14 @@ public class OrderResponse {
     private String deliveryRequest;
     private String personalCustomsCode;
     private String buyerMemo;
+    
+    // Settlement
+    private String settlementStatus;
+    private LocalDateTime settlementCollectedAt;
+    private LocalDate settlementDate;
+    
+    // Order Items
+    private List<OrderItemResponse> items;
     
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -86,6 +99,7 @@ public class OrderResponse {
                 .totalShippingAmount(order.getTotalShippingAmount())
                 .totalDiscountAmount(order.getTotalDiscountAmount())
                 .totalPaidAmount(order.getTotalPaidAmount())
+                .commissionAmount(order.getCommissionAmount())
                 .paymentMethod(order.getPaymentMethod())
                 .shippingFeeType(order.getShippingFeeType())
                 .shippingFee(order.getShippingFee())
@@ -94,8 +108,47 @@ public class OrderResponse {
                 .deliveryRequest(order.getDeliveryRequest())
                 .personalCustomsCode(order.getPersonalCustomsCode())
                 .buyerMemo(order.getBuyerMemo())
+                .settlementStatus(order.getSettlementStatus() != null ? order.getSettlementStatus().name() : "NOT_COLLECTED")
+                .settlementCollectedAt(order.getSettlementCollectedAt())
+                .settlementDate(order.getSettlementDate())
+                .items(order.getItems() != null ? order.getItems().stream()
+                        .map(OrderItemResponse::from)
+                        .collect(Collectors.toList()) : List.of())
                 .createdAt(order.getCreatedAt())
                 .updatedAt(order.getUpdatedAt())
                 .build();
+    }
+    
+    /**
+     * 주문 상품 응답 DTO
+     */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class OrderItemResponse {
+        private UUID orderItemId;
+        private Integer lineNo;
+        private String marketplaceProductId;
+        private String marketplaceSku;
+        private String productName;
+        private String optionName;
+        private Integer quantity;
+        private Long unitPrice;
+        private Long lineAmount;
+        
+        public static OrderItemResponse from(OrderItem item) {
+            return OrderItemResponse.builder()
+                    .orderItemId(item.getOrderItemId())
+                    .lineNo(item.getLineNo())
+                    .marketplaceProductId(item.getMarketplaceProductId())
+                    .marketplaceSku(item.getMarketplaceSku())
+                    .productName(item.getProductName())
+                    .optionName(item.getOptionName())
+                    .quantity(item.getQuantity())
+                    .unitPrice(item.getUnitPrice())
+                    .lineAmount(item.getLineAmount())
+                    .build();
+        }
     }
 }

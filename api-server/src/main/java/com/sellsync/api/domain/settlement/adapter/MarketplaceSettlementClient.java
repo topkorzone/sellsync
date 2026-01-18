@@ -1,6 +1,7 @@
 package com.sellsync.api.domain.settlement.adapter;
 
 import com.sellsync.api.domain.settlement.dto.MarketplaceSettlementData;
+import com.sellsync.api.domain.settlement.dto.smartstore.DailySettlementElement;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -21,7 +22,7 @@ public interface MarketplaceSettlementClient {
     String getMarketplaceCode();
 
     /**
-     * 정산 데이터 수집
+     * 정산 데이터 수집 (배치 단위)
      * 
      * @param startDate 정산 시작일
      * @param endDate 정산 종료일
@@ -33,6 +34,23 @@ public interface MarketplaceSettlementClient {
         LocalDate endDate,
         String credentials
     );
+
+    /**
+     * 정산 Element 직접 반환 (신규 - 변환 없이 원본 데이터)
+     * 
+     * @param startDate 정산 시작일
+     * @param endDate 정산 종료일
+     * @param credentials 인증 정보 (JSON)
+     * @return 일별 정산 요소 목록
+     */
+    default List<DailySettlementElement> fetchSettlementElements(
+        LocalDate startDate,
+        LocalDate endDate,
+        String credentials
+    ) {
+        // 기본 구현: 기존 방식 호환
+        throw new UnsupportedOperationException("fetchSettlementElements not implemented");
+    }
 
     /**
      * 정산 상세 정보 조회

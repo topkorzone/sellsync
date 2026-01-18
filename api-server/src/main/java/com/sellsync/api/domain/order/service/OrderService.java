@@ -5,6 +5,7 @@ import com.sellsync.api.domain.order.dto.OrderResponse;
 import com.sellsync.api.domain.order.entity.Order;
 import com.sellsync.api.domain.order.enums.Marketplace;
 import com.sellsync.api.domain.order.enums.OrderStatus;
+import com.sellsync.api.domain.order.enums.SettlementCollectionStatus;
 import com.sellsync.api.domain.order.exception.OrderNotFoundException;
 import com.sellsync.api.domain.order.repository.OrderRepository;
 import jakarta.persistence.criteria.JoinType;
@@ -17,6 +18,9 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.UUID;
 
@@ -159,6 +163,10 @@ public class OrderService {
      * @param status 주문 상태 (선택)
      * @param marketplaceStr 마켓플레이스 문자열 (선택)
      * @param storeId 스토어 ID (선택)
+     * @param settlementStatus 정산 수집 상태 (선택)
+     * @param search 검색 키워드 - 주문번호, 고객명, 상품명 (선택)
+     * @param from 시작 날짜 (yyyy-MM-dd, 결제일 기준) (선택)
+     * @param to 종료 날짜 (yyyy-MM-dd, 결제일 기준) (선택)
      * @param pageable 페이지 정보
      * @return 주문 목록 페이지
      */
@@ -168,6 +176,10 @@ public class OrderService {
             OrderStatus status,
             String marketplaceStr,
             UUID storeId,
+            SettlementCollectionStatus settlementStatus,
+            String search,
+            String from,
+            String to,
             Pageable pageable
     ) {
         // marketplace 문자열을 Enum으로 변환
@@ -180,14 +192,34 @@ public class OrderService {
             }
         }
 
+        // 날짜 문자열을 LocalDate로 변환
+        LocalDate fromDate = null;
+        LocalDate toDate = null;
+        if (from != null && !from.isEmpty()) {
+            try {
+                fromDate = LocalDate.parse(from, DateTimeFormatter.ISO_LOCAL_DATE);
+            } catch (Exception e) {
+                log.warn("[주문 목록 조회] 잘못된 from 날짜 형식: {}", from);
+            }
+        }
+        if (to != null && !to.isEmpty()) {
+            try {
+                toDate = LocalDate.parse(to, DateTimeFormatter.ISO_LOCAL_DATE);
+            } catch (Exception e) {
+                log.warn("[주문 목록 조회] 잘못된 to 날짜 형식: {}", to);
+            }
+        }
+
         // Specification을 사용한 동적 쿼리 생성
-        Specification<Order> spec = createOrderSpecification(tenantId, status, marketplace, storeId);
+        Specification<Order> spec = createOrderSpecification(
+            tenantId, status, marketplace, storeId, settlementStatus, search, fromDate, toDate
+        );
 
         // items를 fetch join으로 조회
         Page<Order> orders = orderRepository.findAll(spec, pageable);
 
-        log.debug("[주문 목록 조회] tenantId={}, status={}, marketplace={}, storeId={}, page={}, size={}, total={}", 
-                tenantId, status, marketplace, storeId,
+        log.debug("[주문 목록 조회] tenantId={}, status={}, marketplace={}, storeId={}, settlementStatus={}, search={}, from={}, to={}, page={}, size={}, total={}", 
+                tenantId, status, marketplace, storeId, settlementStatus, search, from, to,
                 pageable.getPageNumber(), pageable.getPageSize(), orders.getTotalElements());
 
         // OrderListResponse로 변환하고 매핑 상태 계산
@@ -250,13 +282,18 @@ public class OrderService {
             UUID tenantId, 
             OrderStatus status, 
             Marketplace marketplace, 
-            UUID storeId
+            UUID storeId,
+            SettlementCollectionStatus settlementStatus,
+            String search,
+            LocalDate fromDate,
+            LocalDate toDate
     ) {
         return (root, query, cb) -> {
             // DISTINCT 설정 (fetch join으로 인한 중복 제거)
             query.distinct(true);
             
             // items fetch join (N+1 방지)
+            // ⚠️ COUNT 쿼리에서는 fetch join을 사용하면 오류 발생 -> 조회 쿼리일 때만 적용
             if (query.getResultType() != Long.class && query.getResultType() != long.class) {
                 root.fetch("items", JoinType.LEFT);
             }
@@ -280,6 +317,44 @@ public class OrderService {
             // storeId 필터 (optional)
             if (storeId != null) {
                 predicates.add(cb.equal(root.get("storeId"), storeId));
+            }
+            
+            // settlementStatus 필터 (optional)
+            if (settlementStatus != null) {
+                predicates.add(cb.equal(root.get("settlementStatus"), settlementStatus));
+            }
+            
+            // 검색 키워드 필터 (주문번호, 고객명, 상품명)
+            if (search != null && !search.trim().isEmpty()) {
+                String searchPattern = "%" + search.trim().toLowerCase() + "%";
+                
+                var searchPredicates = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
+                
+                // 주문번호 검색 (marketplaceOrderId)
+                searchPredicates.add(cb.like(cb.lower(root.get("marketplaceOrderId")), searchPattern));
+                
+                // 고객명 검색 (buyerName, receiverName)
+                searchPredicates.add(cb.like(cb.lower(root.get("buyerName")), searchPattern));
+                searchPredicates.add(cb.like(cb.lower(root.get("receiverName")), searchPattern));
+                
+                // 상품명 검색 (OrderItem의 productName)
+                // COUNT 쿼리가 아닐 때만 item join 사용
+                if (query.getResultType() != Long.class && query.getResultType() != long.class) {
+                    var itemsRoot = root.join("items", JoinType.LEFT);
+                    searchPredicates.add(cb.like(cb.lower(itemsRoot.get("productName")), searchPattern));
+                }
+                
+                predicates.add(cb.or(searchPredicates.toArray(new jakarta.persistence.criteria.Predicate[0])));
+            }
+            
+            // 날짜 범위 필터 (결제일 기준)
+            if (fromDate != null) {
+                LocalDateTime fromDateTime = fromDate.atStartOfDay();
+                predicates.add(cb.greaterThanOrEqualTo(root.get("paidAt"), fromDateTime));
+            }
+            if (toDate != null) {
+                LocalDateTime toDateTime = toDate.plusDays(1).atStartOfDay(); // 종료일 포함
+                predicates.add(cb.lessThan(root.get("paidAt"), toDateTime));
             }
             
             // 결재일 기준 최근순 정렬 추가

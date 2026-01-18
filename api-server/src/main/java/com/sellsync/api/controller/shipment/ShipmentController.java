@@ -105,6 +105,75 @@ public class ShipmentController {
     }
 
     /**
+     * 송장 일괄 등록
+     * 
+     * POST /api/shipments/bulk
+     * 
+     * Body:
+     * {
+     *   "shipments": [
+     *     {
+     *       "orderId": "uuid",
+     *       "carrierCode": "CJGLS",
+     *       "trackingNo": "123456789"
+     *     },
+     *     ...
+     *   ]
+     * }
+     * 
+     * Response:
+     * {
+     *   "ok": true,
+     *   "data": {
+     *     "success": 10,
+     *     "failed": 2,
+     *     "results": [...]
+     *   }
+     * }
+     */
+    @PostMapping("/bulk")
+    @PreAuthorize("hasAnyRole('OPERATOR', 'TENANT_ADMIN')")
+    public ResponseEntity<ApiResponse<BulkShipmentResult>> createShipmentsBulk(
+            @AuthenticationPrincipal CustomUserDetails user,
+            @Valid @RequestBody BulkShipmentRequest request) {
+
+        log.info("[Shipment] Bulk create by {} - count: {}", user.getUserId(), request.getShipments().size());
+
+        int successCount = 0;
+        int failedCount = 0;
+        List<ShipmentResult> results = new java.util.ArrayList<>();
+
+        for (CreateShipmentRequest shipmentRequest : request.getShipments()) {
+            try {
+                ShipmentService.CreateShipmentRequest serviceRequest = 
+                        ShipmentService.CreateShipmentRequest.builder()
+                                .orderId(shipmentRequest.getOrderId())
+                                .carrierCode(shipmentRequest.getCarrierCode())
+                                .trackingNo(shipmentRequest.getTrackingNo())
+                                .build();
+
+                Shipment shipment = shipmentService.createShipment(user.getTenantId(), serviceRequest);
+                successCount++;
+                results.add(ShipmentResult.success(shipmentRequest.getOrderId(), shipment.getShipmentId()));
+            } catch (Exception e) {
+                failedCount++;
+                log.error("[Shipment] Bulk create failed - order: {}, error: {}", 
+                        shipmentRequest.getOrderId(), e.getMessage());
+                results.add(ShipmentResult.failed(shipmentRequest.getOrderId(), e.getMessage()));
+            }
+        }
+
+        BulkShipmentResult result = BulkShipmentResult.builder()
+                .success(successCount)
+                .failed(failedCount)
+                .results(results)
+                .build();
+
+        log.info("[Shipment] Bulk create completed - success: {}, failed: {}", successCount, failedCount);
+        return ResponseEntity.ok(ApiResponse.ok(result));
+    }
+
+    /**
      * 송장번호 수정
      */
     @PatchMapping("/{shipmentId}/tracking")
@@ -176,8 +245,49 @@ public class ShipmentController {
     }
 
     @Data
+    public static class BulkShipmentRequest {
+        @NotNull(message = "송장 목록은 필수입니다")
+        private List<CreateShipmentRequest> shipments;
+    }
+
+    @Data
     public static class UpdateTrackingRequest {
         @NotBlank(message = "송장번호는 필수입니다")
         private String trackingNo;
+    }
+
+    // === Response DTOs ===
+
+    @Data
+    @lombok.Builder
+    public static class BulkShipmentResult {
+        private int success;
+        private int failed;
+        private List<ShipmentResult> results;
+    }
+
+    @Data
+    @lombok.Builder
+    public static class ShipmentResult {
+        private UUID orderId;
+        private UUID shipmentId;
+        private boolean success;
+        private String errorMessage;
+
+        public static ShipmentResult success(UUID orderId, UUID shipmentId) {
+            return ShipmentResult.builder()
+                    .orderId(orderId)
+                    .shipmentId(shipmentId)
+                    .success(true)
+                    .build();
+        }
+
+        public static ShipmentResult failed(UUID orderId, String errorMessage) {
+            return ShipmentResult.builder()
+                    .orderId(orderId)
+                    .success(false)
+                    .errorMessage(errorMessage)
+                    .build();
+        }
     }
 }

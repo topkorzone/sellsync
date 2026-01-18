@@ -6,6 +6,8 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.Comment;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -127,6 +129,7 @@ public class SettlementOrder {
     @Comment("마켓 정산 라인 원본 ID")
     private String marketplaceSettlementLineId;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "marketplace_payload", columnDefinition = "jsonb")
     @Comment("마켓 정산 라인 원본 데이터 (JSON)")
     private String marketplacePayload;
