@@ -2,6 +2,7 @@ package com.sellsync.api.domain.store.service;
 
 import com.sellsync.api.domain.order.enums.Marketplace;
 import com.sellsync.api.domain.store.dto.CreateStoreRequest;
+import com.sellsync.api.domain.store.dto.UpdateStoreRequest;
 import com.sellsync.api.domain.store.dto.StoreResponse;
 import com.sellsync.api.domain.store.entity.Store;
 import com.sellsync.api.domain.store.repository.StoreRepository;
@@ -69,6 +70,13 @@ public class StoreService {
                 .storeName(request.getStoreName())
                 .marketplace(request.getMarketplace())
                 .isActive(true)
+                // 수수료 품목 코드
+                .commissionItemCode(request.getCommissionItemCode())
+                .shippingCommissionItemCode(request.getShippingCommissionItemCode())
+                // 기본 설정
+                .defaultWarehouseCode(request.getDefaultWarehouseCode())
+                .defaultCustomerCode(request.getDefaultCustomerCode())
+                .shippingItemCode(request.getShippingItemCode())
                 .build();
 
         Store saved = storeRepository.save(store);
@@ -78,8 +86,49 @@ public class StoreService {
     }
 
     /**
-     * 스토어 활성화/비활성화
+     * 스토어 수정
      */
+    @Transactional
+    public StoreResponse updateStore(UUID storeId, UpdateStoreRequest request) {
+        log.info("[StoreService] Updating store: storeId={}", storeId);
+
+        Store store = storeRepository.findById(storeId)
+                .orElseThrow(() -> new IllegalArgumentException("Store not found: " + storeId));
+
+        // 선택적 필드 업데이트
+        if (request.getStoreName() != null) {
+            store.setStoreName(request.getStoreName());
+        }
+        if (request.getIsActive() != null) {
+            store.setIsActive(request.getIsActive());
+        }
+        if (request.getCommissionItemCode() != null) {
+            store.setCommissionItemCode(request.getCommissionItemCode());
+        }
+        if (request.getShippingCommissionItemCode() != null) {
+            store.setShippingCommissionItemCode(request.getShippingCommissionItemCode());
+        }
+        if (request.getDefaultWarehouseCode() != null) {
+            store.setDefaultWarehouseCode(request.getDefaultWarehouseCode());
+        }
+        if (request.getDefaultCustomerCode() != null) {
+            store.setDefaultCustomerCode(request.getDefaultCustomerCode());
+        }
+        if (request.getShippingItemCode() != null) {
+            store.setShippingItemCode(request.getShippingItemCode());
+        }
+
+        Store updated = storeRepository.save(store);
+        log.info("[StoreService] Store updated: storeId={}", storeId);
+
+        return StoreResponse.from(updated);
+    }
+
+    /**
+     * 스토어 활성화/비활성화
+     * @deprecated updateStore를 사용하세요
+     */
+    @Deprecated
     @Transactional
     public StoreResponse updateStoreStatus(UUID storeId, Boolean isActive) {
         log.info("[StoreService] Updating store status: storeId={}, isActive={}", storeId, isActive);
@@ -96,7 +145,9 @@ public class StoreService {
 
     /**
      * 스토어 ERP 거래처코드 설정
+     * @deprecated updateStore를 사용하세요
      */
+    @Deprecated
     @Transactional
     public StoreResponse updateErpCustomerCode(UUID storeId, String erpCustomerCode) {
         log.info("[StoreService] Updating ERP customer code: storeId={}, erpCustomerCode={}", 
@@ -105,10 +156,42 @@ public class StoreService {
         Store store = storeRepository.findById(storeId)
                 .orElseThrow(() -> new IllegalArgumentException("Store not found: " + storeId));
 
+        store.setDefaultCustomerCode(erpCustomerCode);
+        // 하위 호환성을 위해 erpCustomerCode도 설정
         store.setErpCustomerCode(erpCustomerCode);
         Store updated = storeRepository.save(store);
 
         log.info("[StoreService] ERP customer code updated: storeId={}", storeId);
+        return StoreResponse.from(updated);
+    }
+
+    /**
+     * 스토어 수수료 품목 코드 설정
+     * @deprecated updateStore를 사용하세요
+     */
+    @Deprecated
+    @Transactional
+    public StoreResponse updateCommissionItems(UUID storeId, String commissionItemCode, 
+                                               String shippingCommissionItemCode, String shippingItemCode) {
+        log.info("[StoreService] Updating commission items: storeId={}, commissionItemCode={}, shippingCommissionItemCode={}, shippingItemCode={}", 
+                storeId, commissionItemCode, shippingCommissionItemCode, shippingItemCode);
+
+        Store store = storeRepository.findById(storeId)
+                .orElseThrow(() -> new IllegalArgumentException("Store not found: " + storeId));
+
+        if (commissionItemCode != null) {
+            store.setCommissionItemCode(commissionItemCode);
+        }
+        if (shippingCommissionItemCode != null) {
+            store.setShippingCommissionItemCode(shippingCommissionItemCode);
+        }
+        if (shippingItemCode != null) {
+            store.setShippingItemCode(shippingItemCode);
+        }
+        
+        Store updated = storeRepository.save(store);
+
+        log.info("[StoreService] Commission items updated: storeId={}", storeId);
         return StoreResponse.from(updated);
     }
 

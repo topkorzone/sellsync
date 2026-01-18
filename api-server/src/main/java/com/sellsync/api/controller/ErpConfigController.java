@@ -75,6 +75,10 @@ public class ErpConfigController {
             request.getDefaultCustomerCode(),
             request.getDefaultWarehouseCode(),
             request.getShippingItemCode(),
+            request.getCommissionItemCode(),
+            request.getCommissionItemName(),
+            request.getShippingCommissionItemCode(),
+            request.getShippingCommissionItemName(),
             request.getPostingBatchSize(),
             request.getMaxRetryCount(),
             request.getEnabled()
@@ -154,6 +158,10 @@ public class ErpConfigController {
         private String defaultCustomerCode;
         private String defaultWarehouseCode;
         private String shippingItemCode;
+        private String commissionItemCode;
+        private String commissionItemName;
+        private String shippingCommissionItemCode;
+        private String shippingCommissionItemName;
         private Integer postingBatchSize;
         private Integer maxRetryCount;
         private Boolean enabled;

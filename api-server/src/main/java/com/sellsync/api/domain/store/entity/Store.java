@@ -42,6 +42,22 @@ public class Store {
     @Column(name = "erp_customer_code", length = 50)
     private String erpCustomerCode;
 
+    @Column(name = "commission_item_code", length = 50)
+    private String commissionItemCode;
+
+    @Column(name = "shipping_commission_item_code", length = 50)
+    private String shippingCommissionItemCode;
+    
+    @Column(name = "shipping_item_code", length = 50)
+    private String shippingItemCode;
+
+    @Column(name = "default_warehouse_code", length = 20)
+    @Builder.Default
+    private String defaultWarehouseCode = "100";
+
+    @Column(name = "default_customer_code", length = 50)
+    private String defaultCustomerCode;
+
     @Column(name = "last_synced_at")
     private LocalDateTime lastSyncedAt;
 

@@ -83,6 +83,10 @@ public class ErpConfigService {
         String defaultCustomerCode,
         String defaultWarehouseCode,
         String shippingItemCode,
+        String commissionItemCode,
+        String commissionItemName,
+        String shippingCommissionItemCode,
+        String shippingCommissionItemName,
         Integer postingBatchSize,
         Integer maxRetryCount,
         Boolean enabled
@@ -98,6 +102,10 @@ public class ErpConfigService {
                 defaultCustomerCode,
                 defaultWarehouseCode,
                 shippingItemCode,
+                commissionItemCode,
+                commissionItemName,
+                shippingCommissionItemCode,
+                shippingCommissionItemName,
                 postingBatchSize,
                 maxRetryCount,
                 enabled
@@ -114,6 +122,10 @@ public class ErpConfigService {
                 .defaultCustomerCode(defaultCustomerCode)
                 .defaultWarehouseCode(defaultWarehouseCode)
                 .shippingItemCode(shippingItemCode != null ? shippingItemCode : "SHIPPING")
+                .commissionItemCode(commissionItemCode)
+                .commissionItemName(commissionItemName)
+                .shippingCommissionItemCode(shippingCommissionItemCode)
+                .shippingCommissionItemName(shippingCommissionItemName)
                 .postingBatchSize(postingBatchSize != null ? postingBatchSize : 10)
                 .maxRetryCount(maxRetryCount != null ? maxRetryCount : 3)
                 .enabled(enabled != null ? enabled : true)

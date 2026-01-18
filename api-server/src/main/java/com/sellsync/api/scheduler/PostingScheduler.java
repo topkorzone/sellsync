@@ -185,12 +185,13 @@ public class PostingScheduler {
             // 각 주문에 대해 전표 생성 시도
             for (Order order : settledOrders) {
                 try {
-                    List<PostingResponse> createdPostings = orderSettlementPostingService
+                    // 통합 전표 생성 (한 주문당 1개의 전표)
+                    PostingResponse createdPosting = orderSettlementPostingService
                             .createPostingsForSettledOrder(order.getOrderId(), erpCode);
                     
                     successCount++;
-                    log.debug("[정산 전표 생성 성공] orderId={}, 생성된 전표 수={}", 
-                            order.getOrderId(), createdPostings.size());
+                    log.debug("[정산 전표 생성 성공] orderId={}, postingId={}", 
+                            order.getOrderId(), createdPosting.getPostingId());
                     
                 } catch (Exception e) {
                     failureCount++;

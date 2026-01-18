@@ -8,6 +8,9 @@ import com.sellsync.api.domain.order.enums.OrderStatus;
 import com.sellsync.api.domain.order.enums.SettlementCollectionStatus;
 import com.sellsync.api.domain.order.exception.OrderNotFoundException;
 import com.sellsync.api.domain.order.repository.OrderRepository;
+import com.sellsync.api.domain.settlement.entity.SettlementOrder;
+import com.sellsync.api.domain.settlement.enums.SettlementType;
+import com.sellsync.api.domain.settlement.repository.SettlementOrderRepository;
 import jakarta.persistence.criteria.JoinType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,6 +21,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -38,6 +42,7 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final com.sellsync.api.domain.mapping.repository.ProductMappingRepository productMappingRepository;
+    private final SettlementOrderRepository settlementOrderRepository;
 
     /**
      * 주문 저장/조회 (멱등 Upsert)
@@ -121,9 +126,37 @@ public class OrderService {
      */
     @Transactional(readOnly = true)
     public OrderResponse getById(UUID orderId) {
-        return orderRepository.findById(orderId)
-                .map(OrderResponse::from)
+        Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new OrderNotFoundException(orderId));
+        
+        OrderResponse response = OrderResponse.from(order);
+        
+        // 정산 수집 완료된 경우, 정산 수수료 정보 추가
+        if (order.getSettlementStatus() == SettlementCollectionStatus.COLLECTED 
+            || order.getSettlementStatus() == SettlementCollectionStatus.POSTED) {
+            
+            // 상품 수수료 조회 (SettlementType이 SALES가 아닌 것 중 찾기)
+            List<SettlementOrder> settlementOrders = settlementOrderRepository.findByOrderIdAndSettlementType(
+                orderId, SettlementType.SALES
+            );
+            
+            if (!settlementOrders.isEmpty()) {
+                BigDecimal productCommission = settlementOrders.get(0).getCommissionAmount();
+                response.setProductCommissionAmount(productCommission.longValue());
+            }
+            
+            // 배송비 수수료 조회
+            List<SettlementOrder> shippingOrders = settlementOrderRepository.findByOrderIdAndSettlementType(
+                orderId, SettlementType.SHIPPING_FEE
+            );
+            
+            if (!shippingOrders.isEmpty()) {
+                BigDecimal shippingCommission = shippingOrders.get(0).getCommissionAmount();
+                response.setShippingCommissionAmount(shippingCommission.longValue());
+            }
+        }
+        
+        return response;
     }
 
     /**

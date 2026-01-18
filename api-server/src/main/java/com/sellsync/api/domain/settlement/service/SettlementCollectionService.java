@@ -132,9 +132,10 @@ public class SettlementCollectionService {
             return 0;
         }
 
-        // 배열 준비
+        // 배열 준비 (배송비 수수료 추가)
         String[] orderIds = new String[matchedElements.size()];
         Long[] commissionAmounts = new Long[matchedElements.size()];
+        Long[] shippingCommissionAmounts = new Long[matchedElements.size()];
         Long[] expectedSettlementAmounts = new Long[matchedElements.size()];
         LocalDate[] settlementDates = new LocalDate[matchedElements.size()];
 
@@ -142,12 +143,23 @@ public class SettlementCollectionService {
             DailySettlementElement e = matchedElements.get(i);
             orderIds[i] = e.getOrderId();
             commissionAmounts[i] = e.getTotalCommission();
+            
+            // 배송비 수수료 계산: shippingSettleAmount가 있으면 약 1.9% 적용
+            // 실제로는 스마트스토어 API에서 배송비 수수료를 명시적으로 제공하지 않으므로 계산
+            Long shippingSettleAmount = e.getShippingSettleAmount();
+            if (shippingSettleAmount != null && shippingSettleAmount > 0) {
+                shippingCommissionAmounts[i] = Math.round(shippingSettleAmount * 0.019);
+            } else {
+                shippingCommissionAmounts[i] = 0L;
+            }
+            
             expectedSettlementAmounts[i] = e.getCalculatedSettleAmount();
             settlementDates[i] = settlementDate;
         }
 
         return orderRepository.bulkUpdateSettlementInfo(
-            tenantId, orderIds, commissionAmounts, expectedSettlementAmounts, settlementDates
+            tenantId, orderIds, commissionAmounts, shippingCommissionAmounts,
+            expectedSettlementAmounts, settlementDates
         );
     }
 
@@ -253,11 +265,14 @@ public class SettlementCollectionService {
                 continue;
             }
 
+            // productOrderType에 따라 settlementType 결정
+            SettlementType settlementType = determineSettlementType(element.getProductOrderType());
+            
             SettlementOrder so = SettlementOrder.builder()
                     .tenantId(tenantId)
                     .settlementBatch(batch)
                     .orderId(order.getOrderId())
-                    .settlementType(SettlementType.SALES)
+                    .settlementType(settlementType)
                     .marketplace(marketplace)
                     .marketplaceOrderId(element.getOrderId())
                     .grossSalesAmount(BigDecimal.valueOf(
@@ -327,6 +342,26 @@ public class SettlementCollectionService {
      */
     private String buildIdempotencyKey(UUID tenantId, UUID batchId, UUID orderId, SettlementType type) {
         return tenantId + "_" + batchId + "_" + orderId + "_" + type;
+    }
+
+    /**
+     * productOrderType에 따라 SettlementType 결정
+     * 
+     * @param productOrderType 스마트스토어 API의 productOrderType
+     * @return SettlementType
+     */
+    private SettlementType determineSettlementType(String productOrderType) {
+        if (productOrderType == null) {
+            return SettlementType.SALES; // 기본값
+        }
+        
+        switch (productOrderType) {
+            case "DELIVERY":
+                return SettlementType.SHIPPING_FEE;
+            case "PROD_ORDER":
+            default:
+                return SettlementType.SALES;
+        }
     }
 
     /**

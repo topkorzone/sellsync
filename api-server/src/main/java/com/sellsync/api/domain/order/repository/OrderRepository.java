@@ -132,7 +132,8 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
      * 
      * @param tenantId 테넌트 ID
      * @param orderIds 마켓플레이스 주문 ID 배열
-     * @param commissionAmounts 수수료 금액 배열
+     * @param commissionAmounts 상품 수수료 금액 배열
+     * @param shippingCommissionAmounts 배송비 수수료 금액 배열
      * @param expectedSettlementAmounts 예상 정산 금액 배열
      * @param settlementDates 정산 예정일 배열
      * @return 업데이트된 주문 개수
@@ -141,6 +142,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
     @Query(value = """
         UPDATE orders o 
         SET commission_amount = temp.commission_amount,
+            shipping_commission_amount = temp.shipping_commission_amount,
             expected_settlement_amount = temp.expected_settlement_amount,
             settlement_status = 'COLLECTED',
             settlement_collected_at = NOW(),
@@ -149,6 +151,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
         FROM (
             SELECT unnest(CAST(:orderIds AS text[])) AS marketplace_order_id,
                    unnest(CAST(:commissionAmounts AS bigint[])) AS commission_amount,
+                   unnest(CAST(:shippingCommissionAmounts AS bigint[])) AS shipping_commission_amount,
                    unnest(CAST(:expectedSettlementAmounts AS bigint[])) AS expected_settlement_amount,
                    unnest(CAST(:settlementDates AS date[])) AS settlement_date
         ) AS temp
@@ -159,6 +162,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
         @Param("tenantId") UUID tenantId,
         @Param("orderIds") String[] orderIds,
         @Param("commissionAmounts") Long[] commissionAmounts,
+        @Param("shippingCommissionAmounts") Long[] shippingCommissionAmounts,
         @Param("expectedSettlementAmounts") Long[] expectedSettlementAmounts,
         @Param("settlementDates") LocalDate[] settlementDates
     );

@@ -11,6 +11,10 @@ package com.sellsync.api.domain.posting.enums;
  * - DISCOUNT: 할인전표
  * - POINT_USAGE: 포인트 사용전표
  * 
+ * [수수료 전표]
+ * - PRODUCT_SALES_COMMISSION: 상품판매 수수료
+ * - SHIPPING_FEE_COMMISSION: 배송비 수수료
+ * 
  * [정산 전표 - TRD v3]
  * - COMMISSION_EXPENSE: 수수료 비용전표 (마켓 + PG 수수료)
  * - SHIPPING_ADJUSTMENT: 배송비 차액전표 (정산 배송비 - 고객 결제 배송비)
@@ -24,6 +28,10 @@ public enum PostingType {
     SHIPPING_FEE_CANCEL("배송비취소"),
     DISCOUNT("할인"),
     POINT_USAGE("포인트사용"),
+    
+    // 수수료 전표
+    PRODUCT_SALES_COMMISSION("상품판매수수료"),
+    SHIPPING_FEE_COMMISSION("배송비수수료"),
     
     // 정산 전표 (TRD v3)
     COMMISSION_EXPENSE("수수료비용"),
@@ -49,6 +57,13 @@ public enum PostingType {
      */
     public boolean isCancelType() {
         return this == PRODUCT_CANCEL || this == SHIPPING_FEE_CANCEL;
+    }
+
+    /**
+     * 수수료 전표 여부
+     */
+    public boolean isCommissionType() {
+        return this == PRODUCT_SALES_COMMISSION || this == SHIPPING_FEE_COMMISSION;
     }
 
     /**

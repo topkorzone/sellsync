@@ -1,6 +1,7 @@
 package com.sellsync.api.domain.store.controller;
 
 import com.sellsync.api.domain.store.dto.CreateStoreRequest;
+import com.sellsync.api.domain.store.dto.UpdateStoreRequest;
 import com.sellsync.api.domain.store.dto.StoreResponse;
 import com.sellsync.api.domain.store.service.StoreService;
 import com.sellsync.api.security.CustomUserDetails;
@@ -25,7 +26,7 @@ import java.util.UUID;
  * - GET    /api/stores                : 스토어 목록 조회
  * - GET    /api/stores/{storeId}      : 스토어 상세 조회
  * - POST   /api/stores                : 스토어 생성
- * - PATCH  /api/stores/{storeId}      : 스토어 상태 업데이트
+ * - PATCH  /api/stores/{storeId}      : 스토어 수정
  * - DELETE /api/stores/{storeId}      : 스토어 삭제
  */
 @Slf4j
@@ -159,7 +160,12 @@ public class StoreController {
      *   "tenantId": "...",
      *   "storeName": "내 스마트스토어",
      *   "marketplace": "NAVER_SMARTSTORE",
-     *   "externalStoreId": "..."
+     *   "externalStoreId": "...",
+     *   "commissionItemCode": "COMM001",
+     *   "shippingCommissionItemCode": "COMM002",
+     *   "defaultWarehouseCode": "100",
+     *   "defaultCustomerCode": "2208162517",
+     *   "shippingItemCode": "00081"
      * }
      * 
      * 응답:
@@ -204,13 +210,19 @@ public class StoreController {
     }
 
     /**
-     * 스토어 상태 업데이트 (활성화/비활성화)
+     * 스토어 수정
      * 
      * PATCH /api/stores/{storeId}
      * 
      * 요청 본문:
      * {
-     *   "isActive": false
+     *   "storeName": "변경된 스토어명",
+     *   "isActive": false,
+     *   "commissionItemCode": "COMM001",
+     *   "shippingCommissionItemCode": "COMM002",
+     *   "defaultWarehouseCode": "100",
+     *   "defaultCustomerCode": "2208162517",
+     *   "shippingItemCode": "00081"
      * }
      * 
      * 응답:
@@ -218,28 +230,26 @@ public class StoreController {
      *   "ok": true,
      *   "data": {
      *     "storeId": "...",
-     *     "isActive": false,
      *     ...
      *   }
      * }
      */
     @PatchMapping("/{storeId}")
     @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'SUPER_ADMIN')")
-    public ResponseEntity<Map<String, Object>> updateStoreStatus(
+    public ResponseEntity<Map<String, Object>> updateStore(
             @PathVariable UUID storeId,
-            @RequestBody Map<String, Boolean> body
+            @Valid @RequestBody UpdateStoreRequest request
     ) {
-        Boolean isActive = body.get("isActive");
-        log.info("[스토어 상태 업데이트 요청] storeId={}, isActive={}", storeId, isActive);
+        log.info("[스토어 수정 요청] storeId={}", storeId);
 
         try {
-            StoreResponse store = storeService.updateStoreStatus(storeId, isActive);
+            StoreResponse store = storeService.updateStore(storeId, request);
 
             Map<String, Object> result = new HashMap<>();
             result.put("ok", true);
             result.put("data", store);
 
-            log.info("[스토어 상태 업데이트 성공] storeId={}", storeId);
+            log.info("[스토어 수정 성공] storeId={}", storeId);
             return ResponseEntity.ok(result);
 
         } catch (IllegalArgumentException e) {
@@ -255,7 +265,7 @@ public class StoreController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
 
         } catch (Exception e) {
-            log.error("[스토어 상태 업데이트 실패] storeId={}, error={}", storeId, e.getMessage(), e);
+            log.error("[스토어 수정 실패] storeId={}, error={}", storeId, e.getMessage(), e);
 
             Map<String, Object> error = new HashMap<>();
             error.put("ok", false);
@@ -269,9 +279,11 @@ public class StoreController {
     }
 
     /**
-     * 스토어 ERP 거래처코드 설정
+     * 스토어 ERP 거래처코드 설정 (하위 호환성)
      * 
      * PATCH /api/stores/{storeId}/erp-customer-code
+     * 
+     * @deprecated PATCH /api/stores/{storeId}를 사용하세요
      * 
      * 요청 본문:
      * {
@@ -288,6 +300,8 @@ public class StoreController {
      *   }
      * }
      */
+    @Deprecated
+    @SuppressWarnings("deprecation")
     @PatchMapping("/{storeId}/erp-customer-code")
     @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<Map<String, Object>> updateErpCustomerCode(
@@ -321,6 +335,83 @@ public class StoreController {
 
         } catch (Exception e) {
             log.error("[스토어 ERP 거래처코드 설정 실패] storeId={}, error={}", storeId, e.getMessage(), e);
+
+            Map<String, Object> error = new HashMap<>();
+            error.put("ok", false);
+            error.put("error", Map.of(
+                    "code", "STORE_UPDATE_FAILED",
+                    "message", e.getMessage()
+            ));
+
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+        }
+    }
+
+    /**
+     * 스토어 수수료 품목 코드 설정 (하위 호환성)
+     * 
+     * PATCH /api/stores/{storeId}/commission-items
+     * 
+     * @deprecated PATCH /api/stores/{storeId}를 사용하세요
+     * 
+     * 요청 본문:
+     * {
+     *   "commissionItemCode": "00123",
+     *   "shippingCommissionItemCode": "00124",
+     *   "shippingItemCode": "00125"
+     * }
+     * 
+     * 응답:
+     * {
+     *   "ok": true,
+     *   "data": {
+     *     "storeId": "...",
+     *     "commissionItemCode": "00123",
+     *     "shippingCommissionItemCode": "00124",
+     *     "shippingItemCode": "00125",
+     *     ...
+     *   }
+     * }
+     */
+    @Deprecated
+    @SuppressWarnings("deprecation")
+    @PatchMapping("/{storeId}/commission-items")
+    @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'SUPER_ADMIN')")
+    public ResponseEntity<Map<String, Object>> updateCommissionItems(
+            @PathVariable UUID storeId,
+            @RequestBody Map<String, String> body
+    ) {
+        String commissionItemCode = body.get("commissionItemCode");
+        String shippingCommissionItemCode = body.get("shippingCommissionItemCode");
+        String shippingItemCode = body.get("shippingItemCode");
+        log.info("[스토어 수수료 품목 설정 요청] storeId={}, commissionItemCode={}, shippingCommissionItemCode={}, shippingItemCode={}", 
+                storeId, commissionItemCode, shippingCommissionItemCode, shippingItemCode);
+
+        try {
+            StoreResponse store = storeService.updateCommissionItems(
+                storeId, commissionItemCode, shippingCommissionItemCode, shippingItemCode);
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("ok", true);
+            result.put("data", store);
+
+            log.info("[스토어 수수료 품목 설정 성공] storeId={}", storeId);
+            return ResponseEntity.ok(result);
+
+        } catch (IllegalArgumentException e) {
+            log.warn("[스토어 미발견] storeId={}", storeId);
+
+            Map<String, Object> error = new HashMap<>();
+            error.put("ok", false);
+            error.put("error", Map.of(
+                    "code", "STORE_NOT_FOUND",
+                    "message", e.getMessage()
+            ));
+
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+
+        } catch (Exception e) {
+            log.error("[스토어 수수료 품목 설정 실패] storeId={}, error={}", storeId, e.getMessage(), e);
 
             Map<String, Object> error = new HashMap<>();
             error.put("ok", false);

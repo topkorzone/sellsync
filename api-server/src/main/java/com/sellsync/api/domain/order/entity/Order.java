@@ -104,7 +104,10 @@ public class Order {
     private Long totalPaidAmount;
     
     @Column(name = "commission_amount")
-    private Long commissionAmount;  // 마켓 수수료 (OrderItem의 commission 합계)
+    private Long commissionAmount;  // 상품판매에 대한 마켓 수수료 (OrderItem의 commission 합계)
+    
+    @Column(name = "shipping_commission_amount")
+    private Long shippingCommissionAmount;  // 배송비에 대한 마켓 수수료
     
     @Column(name = "expected_settlement_amount")
     private Long expectedSettlementAmount;  // 정산 예정 금액

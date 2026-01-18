@@ -67,6 +67,8 @@ public class OrderResponse {
     private String settlementStatus;
     private LocalDateTime settlementCollectedAt;
     private LocalDate settlementDate;
+    private Long productCommissionAmount;  // 상품 수수료 (정산 수집 후)
+    private Long shippingCommissionAmount;  // 배송비 수수료 (정산 수집 후)
     
     // Order Items
     private List<OrderItemResponse> items;

@@ -76,6 +76,30 @@ public class ErpConfig extends BaseEntity {
     private String shippingItemCode = "SHIPPING";
     
     /**
+     * 상품판매 수수료 품목 코드 (예: 스마트스토어 수수료)
+     */
+    @Column(name = "commission_item_code", length = 50)
+    private String commissionItemCode;
+    
+    /**
+     * 상품판매 수수료 품목명 (참고용)
+     */
+    @Column(name = "commission_item_name", length = 200)
+    private String commissionItemName;
+    
+    /**
+     * 배송비 수수료 품목 코드
+     */
+    @Column(name = "shipping_commission_item_code", length = 50)
+    private String shippingCommissionItemCode;
+    
+    /**
+     * 배송비 수수료 품목명 (참고용)
+     */
+    @Column(name = "shipping_commission_item_name", length = 200)
+    private String shippingCommissionItemName;
+    
+    /**
      * 배치 처리 시 한번에 처리할 전표 수
      */
     @Column(name = "posting_batch_size")
@@ -112,6 +136,10 @@ public class ErpConfig extends BaseEntity {
         String defaultCustomerCode,
         String defaultWarehouseCode,
         String shippingItemCode,
+        String commissionItemCode,
+        String commissionItemName,
+        String shippingCommissionItemCode,
+        String shippingCommissionItemName,
         Integer postingBatchSize,
         Integer maxRetryCount,
         Boolean enabled
@@ -130,6 +158,18 @@ public class ErpConfig extends BaseEntity {
         }
         if (shippingItemCode != null) {
             this.shippingItemCode = shippingItemCode;
+        }
+        if (commissionItemCode != null) {
+            this.commissionItemCode = commissionItemCode;
+        }
+        if (commissionItemName != null) {
+            this.commissionItemName = commissionItemName;
+        }
+        if (shippingCommissionItemCode != null) {
+            this.shippingCommissionItemCode = shippingCommissionItemCode;
+        }
+        if (shippingCommissionItemName != null) {
+            this.shippingCommissionItemName = shippingCommissionItemName;
         }
         if (postingBatchSize != null && postingBatchSize > 0) {
             this.postingBatchSize = postingBatchSize;
