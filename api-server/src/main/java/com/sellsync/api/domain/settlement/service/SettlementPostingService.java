@@ -4,7 +4,6 @@ import com.sellsync.api.domain.posting.dto.CreatePostingRequest;
 import com.sellsync.api.domain.posting.dto.PostingResponse;
 import com.sellsync.api.domain.posting.enums.PostingType;
 import com.sellsync.api.domain.posting.service.PostingService;
-import com.sellsync.api.domain.settlement.dto.SettlementBatchResponse;
 import com.sellsync.api.domain.settlement.entity.SettlementBatch;
 import com.sellsync.api.domain.settlement.entity.SettlementOrder;
 import com.sellsync.api.domain.settlement.exception.SettlementBatchNotFoundException;
@@ -71,9 +70,8 @@ public class SettlementPostingService {
         log.info("[수금 전표 생성] postingId={}, amount={}", 
             receiptPosting.getPostingId(), batch.getNetPayoutAmount());
 
-        // 4. 배치 상태 업데이트: POSTING_READY → (전표 생성 완료는 PostingExecutor에서 처리)
-        // 여기서는 전표 ID만 연결
-        settlementService.markAsPosted(
+        // 4. 배치에 전표 ID 연결 (상태는 VALIDATED 유지)
+        settlementService.linkPostings(
             settlementBatchId, 
             commissionPosting.getPostingId(), 
             receiptPosting.getPostingId()

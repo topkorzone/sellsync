@@ -9,7 +9,6 @@ import com.sellsync.api.domain.settlement.exception.SettlementBatchNotFoundExcep
 import com.sellsync.api.domain.settlement.repository.SettlementBatchRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -132,35 +131,20 @@ public class SettlementService {
     }
 
     /**
-     * 전표 준비 완료 처리
+     * 전표 ID 연결 (전표가 생성되면 호출)
+     * 상태 전이 없이 전표 ID만 저장
      */
     @Transactional
-    public SettlementBatchResponse markAsPostingReady(UUID settlementBatchId) {
-        SettlementBatch batch = settlementBatchRepository.findById(settlementBatchId)
-                .orElseThrow(() -> new SettlementBatchNotFoundException(settlementBatchId));
-
-        batch.markAsPostingReady();
-        SettlementBatch updated = settlementBatchRepository.save(batch);
-
-        log.info("[전표 준비 완료] settlementBatchId={}, status=POSTING_READY", settlementBatchId);
-
-        return SettlementBatchResponse.from(updated);
-    }
-
-    /**
-     * 전표 생성 완료 처리
-     */
-    @Transactional
-    public SettlementBatchResponse markAsPosted(UUID settlementBatchId, 
+    public SettlementBatchResponse linkPostings(UUID settlementBatchId, 
                                                 UUID commissionPostingId, 
                                                 UUID receiptPostingId) {
         SettlementBatch batch = settlementBatchRepository.findById(settlementBatchId)
                 .orElseThrow(() -> new SettlementBatchNotFoundException(settlementBatchId));
 
-        batch.markAsPosted(commissionPostingId, receiptPostingId);
+        batch.linkPostings(commissionPostingId, receiptPostingId);
         SettlementBatch updated = settlementBatchRepository.save(batch);
 
-        log.info("[전표 생성 완료] settlementBatchId={}, status=POSTED, commissionPostingId={}, receiptPostingId={}", 
+        log.info("[전표 연결] settlementBatchId={}, commissionPostingId={}, receiptPostingId={}", 
             settlementBatchId, commissionPostingId, receiptPostingId);
 
         return SettlementBatchResponse.from(updated);

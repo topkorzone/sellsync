@@ -43,6 +43,7 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final com.sellsync.api.domain.mapping.repository.ProductMappingRepository productMappingRepository;
     private final SettlementOrderRepository settlementOrderRepository;
+    private final com.sellsync.api.domain.posting.repository.PostingRepository postingRepository;
 
     /**
      * 주문 저장/조회 (멱등 Upsert)
@@ -255,7 +256,7 @@ public class OrderService {
                 tenantId, status, marketplace, storeId, settlementStatus, search, from, to,
                 pageable.getPageNumber(), pageable.getPageSize(), orders.getTotalElements());
 
-        // OrderListResponse로 변환하고 매핑 상태 계산
+        // OrderListResponse로 변환하고 매핑 상태, 정산 금액, 전표 정보 계산
         return orders.map(order -> {
             OrderListResponse response = OrderListResponse.from(order);
             
@@ -263,10 +264,29 @@ public class OrderService {
             String mappingStatus = calculateMappingStatus(order);
             response.setMappingStatus(mappingStatus);
             
+            // 상품 정산 예정 금액 계산 (SALES 타입만)
+            Long productSettlementAmount = calculateProductSettlementAmount(order);
+            response.setExpectedSettlementAmount(productSettlementAmount);
+            
+            // 전표 정보 조회 (POSTED 상태인 경우 erpDocumentNo 설정)
+            String erpDocumentNo = getErpDocumentNo(order);
+            response.setErpDocumentNo(erpDocumentNo);
+            
             return response;
         });
     }
     
+    /**
+     * 전표 생성 가능 여부 확인
+     * 
+     * @param order 주문 엔티티
+     * @return 모든 상품이 매핑되어 있으면 true, 아니면 false
+     */
+    public boolean isReadyForPosting(Order order) {
+        String mappingStatus = calculateMappingStatus(order);
+        return "MAPPED".equals(mappingStatus);
+    }
+
     /**
      * 주문의 매핑 상태 계산
      * - MAPPED: 모든 상품 매핑됨
@@ -305,6 +325,67 @@ public class OrderService {
             return "MAPPED";
         } else {
             return "PARTIAL";
+        }
+    }
+
+    /**
+     * 상품 정산 예정 금액 계산
+     * 
+     * 정산 테이블에서 SALES 타입의 netPayoutAmount만 조회하여 반환
+     * (SHIPPING_FEE 타입은 제외)
+     * 
+     * @param order 주문 엔티티
+     * @return 상품 정산 예정 금액 (없으면 0)
+     */
+    private Long calculateProductSettlementAmount(Order order) {
+        try {
+            List<SettlementOrder> settlements = settlementOrderRepository
+                    .findByOrderIdAndSettlementType(order.getOrderId(), SettlementType.SALES);
+            
+            if (settlements.isEmpty()) {
+                return 0L;
+            }
+            
+            // 여러 개가 있을 경우 합산 (일반적으로는 1개만 있어야 함)
+            BigDecimal total = settlements.stream()
+                    .map(SettlementOrder::getNetPayoutAmount)
+                    .filter(java.util.Objects::nonNull)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            
+            return total.longValue();
+        } catch (Exception e) {
+            log.error("[상품 정산 금액 조회 실패] orderId={}", order.getOrderId(), e);
+            return 0L;
+        }
+    }
+
+    /**
+     * 전표 번호 조회
+     * 
+     * 주문에 대해 POSTED 상태인 전표가 있으면 erpDocumentNo 반환
+     * 
+     * @param order 주문 엔티티
+     * @return ERP 전표 번호 (없으면 null)
+     */
+    private String getErpDocumentNo(Order order) {
+        try {
+            List<com.sellsync.api.domain.posting.entity.Posting> postings = 
+                    postingRepository.findByTenantIdAndOrderId(order.getTenantId(), order.getOrderId());
+            
+            if (postings.isEmpty()) {
+                return null;
+            }
+            
+            // POSTED 상태인 전표 중 첫 번째 전표의 erpDocumentNo 반환
+            return postings.stream()
+                    .filter(posting -> posting.getPostingStatus() == com.sellsync.api.domain.posting.enums.PostingStatus.POSTED)
+                    .map(com.sellsync.api.domain.posting.entity.Posting::getErpDocumentNo)
+                    .filter(java.util.Objects::nonNull)
+                    .findFirst()
+                    .orElse(null);
+        } catch (Exception e) {
+            log.error("[전표 번호 조회 실패] orderId={}", order.getOrderId(), e);
+            return null;
         }
     }
 

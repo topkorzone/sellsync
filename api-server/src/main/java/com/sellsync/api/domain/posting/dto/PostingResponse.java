@@ -28,6 +28,7 @@ public class PostingResponse {
     private UUID orderId;
     private Marketplace marketplace;
     private String marketplaceOrderId;
+    private String marketplaceProductId; // 첫 번째 상품주문 ID
     private PostingType postingType;
     private PostingStatus postingStatus;
     private String erpDocumentNo;

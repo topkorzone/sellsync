@@ -187,7 +187,9 @@ public class ProductMappingService {
     }
 
     /**
-     * 수동 매핑
+     * 수동 매핑 (동일 상품 일괄 처리)
+     * - 선택한 매핑을 완료 처리
+     * - 같은 상품명을 가진 미매핑 상태의 다른 매핑들도 자동으로 매핑 완료
      */
     @Transactional
     public ProductMapping manualMap(UUID mappingId, String erpItemCode, UUID userId) {
@@ -198,12 +200,48 @@ public class ProductMappingService {
                 .findByTenantIdAndErpCodeAndItemCode(mapping.getTenantId(), "ECOUNT", erpItemCode)
                 .orElseThrow(() -> new IllegalArgumentException("ERP item not found"));
 
+        // 1. 선택한 매핑 완료 처리
         mapping.mapTo(item.getItemCode(), item.getItemName(), item.getWarehouseCode(), MappingType.MANUAL, userId);
+        ProductMapping saved = productMappingRepository.save(mapping);
 
         log.info("[수동 매핑] mappingId={}, erpItemCode={}, warehouseCode={}, userId={}", 
             mappingId, erpItemCode, item.getWarehouseCode(), userId);
 
-        return productMappingRepository.save(mapping);
+        // 2. 같은 상품명을 가진 미매핑 상태의 다른 매핑들도 일괄 처리
+        if (mapping.getProductName() != null && !mapping.getProductName().isBlank()) {
+            List<ProductMapping> similarMappings = productMappingRepository
+                    .findByTenantIdAndProductNameAndMappingStatus(
+                            mapping.getTenantId(),
+                            mapping.getProductName(),
+                            MappingStatus.UNMAPPED
+                    );
+
+            if (!similarMappings.isEmpty()) {
+                log.info("[동일 상품 일괄 매핑 시작] productName='{}', 대상 개수={}", 
+                    mapping.getProductName(), similarMappings.size());
+
+                int batchMappedCount = 0;
+                for (ProductMapping similarMapping : similarMappings) {
+                    // 이미 처리한 매핑은 제외 (혹시 모를 중복 방지)
+                    if (!similarMapping.getProductMappingId().equals(mappingId)) {
+                        similarMapping.mapTo(
+                            item.getItemCode(), 
+                            item.getItemName(), 
+                            item.getWarehouseCode(), 
+                            MappingType.AUTO, // 자동 일괄 처리는 AUTO 타입으로 표시
+                            userId
+                        );
+                        productMappingRepository.save(similarMapping);
+                        batchMappedCount++;
+                    }
+                }
+
+                log.info("[동일 상품 일괄 매핑 완료] productName='{}', 일괄 처리된 개수={}", 
+                    mapping.getProductName(), batchMappedCount);
+            }
+        }
+
+        return saved;
     }
 
     /**

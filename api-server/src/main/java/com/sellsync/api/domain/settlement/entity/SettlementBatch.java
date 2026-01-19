@@ -176,7 +176,7 @@ public class SettlementBatch {
     private LocalDateTime validatedAt;
 
     @Column(name = "posted_at")
-    @Comment("전표 생성 완료 시각")
+    @Comment("전표 생성 시각")
     private LocalDateTime postedAt;
 
     @Column(name = "closed_at")
@@ -217,8 +217,8 @@ public class SettlementBatch {
         // 타임스탬프 업데이트
         switch (targetStatus) {
             case VALIDATED -> this.validatedAt = LocalDateTime.now();
-            case POSTED -> this.postedAt = LocalDateTime.now();
             case CLOSED -> this.closedAt = LocalDateTime.now();
+            default -> {}
         }
     }
 
@@ -230,19 +230,20 @@ public class SettlementBatch {
     }
 
     /**
-     * 전표 준비 완료 처리
+     * 전표 ID 연결 (전표가 생성되면 호출)
      */
-    public void markAsPostingReady() {
-        transitionTo(SettlementStatus.POSTING_READY);
+    public void linkPostings(UUID commissionPostingId, UUID receiptPostingId) {
+        this.commissionPostingId = commissionPostingId;
+        this.receiptPostingId = receiptPostingId;
+        this.postedAt = LocalDateTime.now();
+        this.updatedAt = LocalDateTime.now();
     }
 
     /**
-     * 전표 생성 완료 처리
+     * 전표 생성 여부 확인
      */
-    public void markAsPosted(UUID commissionPostingId, UUID receiptPostingId) {
-        this.commissionPostingId = commissionPostingId;
-        this.receiptPostingId = receiptPostingId;
-        transitionTo(SettlementStatus.POSTED);
+    public boolean hasPostings() {
+        return this.commissionPostingId != null && this.receiptPostingId != null;
     }
 
     /**

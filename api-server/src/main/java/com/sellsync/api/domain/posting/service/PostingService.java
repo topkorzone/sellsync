@@ -27,6 +27,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -243,18 +244,24 @@ public class PostingService {
         PostingResponse response = PostingResponse.from(posting);
         
         try {
-            // requestPayload에서 금액 추출 시도
-            Long amount = extractAmountFromRequestPayload(posting.getRequestPayload(), posting.getPostingType());
+            Order order = orderRepository.findById(posting.getOrderId()).orElse(null);
             
-            if (amount != null && amount > 0) {
-                log.info("[requestPayload에서 금액 추출 성공] postingId={}, type={}, amount={}", 
-                        postingId, posting.getPostingType(), amount);
-                response.setTotalAmount(amount);
-            } else {
-                // requestPayload에 금액이 없으면 Order에서 계산
-                Order order = orderRepository.findById(posting.getOrderId()).orElse(null);
+            if (order != null) {
+                // 첫 번째 아이템에서 상품주문 ID 설정
+                if (order.getItems() != null && !order.getItems().isEmpty()) {
+                    String productId = order.getItems().get(0).getMarketplaceProductId();
+                    response.setMarketplaceProductId(productId);
+                }
                 
-                if (order != null) {
+                // requestPayload에서 금액 추출 시도
+                Long amount = extractAmountFromRequestPayload(posting.getRequestPayload(), posting.getPostingType());
+                
+                if (amount != null && amount > 0) {
+                    log.info("[requestPayload에서 금액 추출 성공] postingId={}, type={}, amount={}", 
+                            postingId, posting.getPostingType(), amount);
+                    response.setTotalAmount(amount);
+                } else {
+                    // requestPayload에 금액이 없으면 Order에서 계산
                     Long productAmount = order.getTotalProductAmount();
                     if (productAmount == null || productAmount == 0) {
                         productAmount = order.getItems().stream()
@@ -344,7 +351,22 @@ public class PostingService {
         log.debug("[전표 목록 조회] tenantId={}, orderId={}, status={}, type={}, total={}", 
                 tenantId, orderId, status, postingType, postings.getTotalElements());
 
-        return postings.map(PostingResponse::from);
+        return postings.map(posting -> {
+            PostingResponse response = PostingResponse.from(posting);
+            
+            // Order의 첫 번째 아이템에서 상품주문 ID(marketplaceProductId) 조회
+            try {
+                Order order = orderRepository.findById(posting.getOrderId()).orElse(null);
+                if (order != null && order.getItems() != null && !order.getItems().isEmpty()) {
+                    String productId = order.getItems().get(0).getMarketplaceProductId();
+                    response.setMarketplaceProductId(productId);
+                }
+            } catch (Exception e) {
+                log.warn("[상품주문 ID 조회 실패] postingId={}, error={}", posting.getPostingId(), e.getMessage());
+            }
+            
+            return response;
+        });
     }
 
     /**
@@ -360,9 +382,20 @@ public class PostingService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new OrderNotFoundException(orderId));
 
+        // 2. 상품 매핑 완료 확인 (필수)
+        List<String> unmappedItems = checkProductMappings(order);
+        if (!unmappedItems.isEmpty()) {
+            String errorMsg = String.format(
+                "상품 매핑이 완료되지 않은 항목이 있습니다. 매핑 관리 화면에서 먼저 매핑을 완료해주세요. orderId=%s, unmapped items=%s",
+                orderId, unmappedItems
+            );
+            log.error("[전표 생성 차단 - 상품매핑 미완료] orderId={}, unmappedItems={}", orderId, unmappedItems);
+            throw new IllegalStateException(errorMsg);
+        }
+
         List<PostingResponse> createdPostings = new ArrayList<>();
 
-        // 2. 생성 모드에 따라 전표 생성
+        // 3. 생성 모드에 따라 전표 생성
         List<PostingType> typesToCreate = determinePostingTypes(request, order);
 
         for (PostingType type : typesToCreate) {
@@ -748,5 +781,41 @@ public class PostingService {
             log.warn("[requestPayload 파싱 실패] postingType={}, error={}", postingType, e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * OrderItem의 ProductMapping 확인
+     * 
+     * @param order 주문 엔티티
+     * @return 매핑되지 않은 상품 목록 (productId:sku 형식)
+     */
+    private List<String> checkProductMappings(Order order) {
+        List<String> unmappedItems = new ArrayList<>();
+
+        if (order.getItems() == null || order.getItems().isEmpty()) {
+            log.warn("[상품 아이템 없음] orderId={}", order.getOrderId());
+            return unmappedItems;
+        }
+
+        for (com.sellsync.api.domain.order.entity.OrderItem item : order.getItems()) {
+            Optional<com.sellsync.api.domain.mapping.dto.ProductMappingResponse> mapping = 
+                productMappingService.findActiveMapping(
+                    order.getTenantId(),
+                    order.getStoreId(),
+                    order.getMarketplace(),
+                    item.getMarketplaceProductId(),
+                    item.getMarketplaceSku()
+                );
+
+            if (mapping.isEmpty()) {
+                String itemKey = String.format("%s:%s", 
+                    item.getMarketplaceProductId(), item.getMarketplaceSku());
+                unmappedItems.add(itemKey);
+                log.warn("[상품 매핑 없음] orderId={}, productId={}, sku={}", 
+                    order.getOrderId(), item.getMarketplaceProductId(), item.getMarketplaceSku());
+            }
+        }
+
+        return unmappedItems;
     }
 }

@@ -18,7 +18,13 @@ public interface OrderCollectionHistoryRepository extends JpaRepository<OrderCol
 
     Page<OrderCollectionHistory> findByTenantIdOrderByStartedAtDesc(UUID tenantId, Pageable pageable);
 
+    Page<OrderCollectionHistory> findByTenantId(UUID tenantId, Pageable pageable);
+
+    Page<OrderCollectionHistory> findByTenantIdAndStoreId(UUID tenantId, UUID storeId, Pageable pageable);
+
     List<OrderCollectionHistory> findByStoreIdAndStartedAtAfter(UUID storeId, LocalDateTime after);
+
+    List<OrderCollectionHistory> findByTenantIdAndStartedAtAfter(UUID tenantId, LocalDateTime after);
 
     // 최근 수집 이력
     OrderCollectionHistory findFirstByStoreIdOrderByStartedAtDesc(UUID storeId);

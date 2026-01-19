@@ -19,6 +19,11 @@ import java.util.stream.Collectors;
  * 
  * 주문 목록 조회 시 사용하는 경량 DTO
  * - 목록 화면에 필요한 정보 포함
+ * 
+ * 주의사항:
+ * - shippingFee: 배송비만 표시 (배송비 자체의 금액)
+ * - commissionAmount: 상품 판매 수수료만 표시 (배송비 수수료 제외)
+ * - expectedSettlementAmount: 상품에 대한 정산 예정 금액만 표시 (배송비 정산 금액 제외)
  */
 @Data
 @NoArgsConstructor
@@ -41,9 +46,9 @@ public class OrderListResponse {
     
     // Payment
     private Long totalPaidAmount;
-    private Long shippingFee;  // 배송비
-    private Long commissionAmount;  // 수수료
-    private Long expectedSettlementAmount;  // 정산예정금액
+    private Long shippingFee;  // 배송비 (배송비 자체만, 배송비 수수료나 정산액 아님)
+    private Long commissionAmount;  // 상품 판매 수수료 (배송비 수수료 제외)
+    private Long expectedSettlementAmount;  // 상품 정산예정금액 (배송비 정산 금액 제외)
     
     // Order Items (간략 정보)
     private List<OrderItemSummary> items;
@@ -68,8 +73,17 @@ public class OrderListResponse {
 
     /**
      * Order 엔티티로부터 목록용 DTO 생성
+     * 
+     * 주의: shippingFee, commissionAmount, expectedSettlementAmount는
+     * 서비스 레이어에서 정산 테이블을 기반으로 별도 설정됨
      */
     public static OrderListResponse from(Order order) {
+        // 배송비: totalShippingAmount 우선, 없으면 shippingFee 사용
+        Long displayShippingFee = order.getTotalShippingAmount();
+        if (displayShippingFee == null || displayShippingFee == 0) {
+            displayShippingFee = order.getShippingFee();
+        }
+        
         return OrderListResponse.builder()
                 .orderId(order.getOrderId())
                 .tenantId(order.getTenantId())
@@ -82,9 +96,9 @@ public class OrderListResponse {
                 .receiverName(order.getReceiverName())
                 .receiverPhone1(order.getReceiverPhone1())
                 .totalPaidAmount(order.getTotalPaidAmount())
-                .shippingFee(order.getShippingFee())
-                .commissionAmount(order.getCommissionAmount())
-                .expectedSettlementAmount(order.getExpectedSettlementAmount())
+                .shippingFee(displayShippingFee)  // 배송비만 표시
+                .commissionAmount(order.getCommissionAmount())  // 상품 수수료 (배송비 수수료 제외)
+                .expectedSettlementAmount(null)  // 서비스에서 정산 테이블 기반으로 설정
                 .items(order.getItems().stream()
                         .map(OrderItemSummary::from)
                         .collect(Collectors.toList()))

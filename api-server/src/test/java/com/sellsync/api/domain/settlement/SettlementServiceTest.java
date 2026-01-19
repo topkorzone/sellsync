@@ -85,7 +85,7 @@ class SettlementServiceTest extends SettlementTestBase {
     }
 
     @Test
-    @DisplayName("[상태머신] COLLECTED → VALIDATED → POSTING_READY → POSTED → CLOSED")
+    @DisplayName("[상태머신] COLLECTED → VALIDATED → CLOSED")
     void testSettlementStateMachine() {
         // Given: COLLECTED 상태 배치 생성
         UUID tenantId = UUID.randomUUID();
@@ -109,26 +109,20 @@ class SettlementServiceTest extends SettlementTestBase {
         assertThat(validated.getValidatedAt()).isNotNull();
         log.info("✅ Step 2: VALIDATED");
 
-        // When: VALIDATED → POSTING_READY
-        SettlementBatchResponse postingReady = settlementService.markAsPostingReady(batchId);
-        assertThat(postingReady.getSettlementStatus()).isEqualTo(SettlementStatus.POSTING_READY);
-        log.info("✅ Step 3: POSTING_READY");
-
-        // When: POSTING_READY → POSTED
+        // When: 전표 ID 연결 (상태는 VALIDATED 유지)
         UUID commissionPostingId = UUID.randomUUID();
         UUID receiptPostingId = UUID.randomUUID();
-        SettlementBatchResponse posted = settlementService.markAsPosted(batchId, commissionPostingId, receiptPostingId);
-        assertThat(posted.getSettlementStatus()).isEqualTo(SettlementStatus.POSTED);
-        assertThat(posted.getCommissionPostingId()).isEqualTo(commissionPostingId);
-        assertThat(posted.getReceiptPostingId()).isEqualTo(receiptPostingId);
-        assertThat(posted.getPostedAt()).isNotNull();
-        log.info("✅ Step 4: POSTED");
+        SettlementBatchResponse linked = settlementService.linkPostings(batchId, commissionPostingId, receiptPostingId);
+        assertThat(linked.getSettlementStatus()).isEqualTo(SettlementStatus.VALIDATED); // 상태 유지
+        assertThat(linked.getCommissionPostingId()).isEqualTo(commissionPostingId);
+        assertThat(linked.getReceiptPostingId()).isEqualTo(receiptPostingId);
+        log.info("✅ Step 3: 전표 연결 (VALIDATED 유지)");
 
-        // When: POSTED → CLOSED
+        // When: VALIDATED → CLOSED
         SettlementBatchResponse closed = settlementService.markAsClosed(batchId);
         assertThat(closed.getSettlementStatus()).isEqualTo(SettlementStatus.CLOSED);
         assertThat(closed.getClosedAt()).isNotNull();
-        log.info("✅ Step 5: CLOSED");
+        log.info("✅ Step 4: CLOSED");
     }
 
     @Test

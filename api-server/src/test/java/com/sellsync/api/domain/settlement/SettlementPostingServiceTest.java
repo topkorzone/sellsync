@@ -66,9 +66,8 @@ class SettlementPostingServiceTest extends SettlementTestBase {
             batch.getTotalPgFeeAmount(),
             batch.getNetPayoutAmount());
 
-        // Given: POSTING_READY 상태로 전환
+        // Given: VALIDATED 상태로 전환
         settlementService.markAsValidated(batchId);
-        settlementService.markAsPostingReady(batchId);
 
         // When: 정산 전표 생성
         List<PostingResponse> postings = settlementPostingService.createSettlementPostings(batchId, "ECOUNT");

@@ -61,7 +61,20 @@ public interface SettlementBatchRepository extends JpaRepository<SettlementBatch
     );
 
     /**
-     * POSTING_READY 상태 정산 배치 조회 (전표 생성 대상)
+     * VALIDATED 상태이면서 전표가 생성되지 않은 배치 조회 (전표 생성 대상)
+     */
+    @Query("SELECT s FROM SettlementBatch s WHERE s.tenantId = :tenantId " +
+           "AND s.settlementStatus = 'VALIDATED' " +
+           "AND s.commissionPostingId IS NULL " +
+           "AND s.receiptPostingId IS NULL " +
+           "ORDER BY s.validatedAt ASC")
+    Page<SettlementBatch> findPendingPostingBatches(
+        @Param("tenantId") UUID tenantId,
+        Pageable pageable
+    );
+
+    /**
+     * 테넌트 + 상태별 정산 배치 조회 (범용)
      */
     Page<SettlementBatch> findByTenantIdAndSettlementStatusOrderByCollectedAtAsc(
         UUID tenantId,

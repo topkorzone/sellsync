@@ -39,6 +39,7 @@ public class PostingScheduler {
     private final ErpConfigService erpConfigService;
     private final OrderSettlementPostingService orderSettlementPostingService;
     private final OrderRepository orderRepository;
+    private final com.sellsync.api.domain.order.service.OrderService orderService;
 
     /**
      * READY 상태 전표 자동 전송 (조건부 실행)
@@ -180,11 +181,20 @@ public class PostingScheduler {
 
             int successCount = 0;
             int failureCount = 0;
+            int skippedCount = 0;
             String erpCode = "ECOUNT";
 
             // 각 주문에 대해 전표 생성 시도
             for (Order order : settledOrders) {
                 try {
+                    // ✅ 상품 매핑 완료 여부 사전 체크 (주문 리스트와 동일한 로직)
+                    if (!orderService.isReadyForPosting(order)) {
+                        skippedCount++;
+                        log.debug("[정산 전표 생성 스킵 - 상품매핑 미완료] orderId={}, marketplaceOrderId={}", 
+                                order.getOrderId(), order.getMarketplaceOrderId());
+                        continue;
+                    }
+                    
                     // 통합 전표 생성 (한 주문당 1개의 전표)
                     PostingResponse createdPosting = orderSettlementPostingService
                             .createPostingsForSettledOrder(order.getOrderId(), erpCode);
@@ -201,8 +211,8 @@ public class PostingScheduler {
                 }
             }
 
-            log.info("[스케줄러] 정산 전표 생성 완료: 성공 {} 건, 실패 {} 건", 
-                    successCount, failureCount);
+            log.info("[스케줄러] 정산 전표 생성 완료: 성공 {} 건, 실패 {} 건, 스킵 {} 건 (상품매핑 미완료)", 
+                    successCount, failureCount, skippedCount);
 
         } catch (Exception e) {
             log.error("[스케줄러] 정산 전표 생성 배치 실패: {}", e.getMessage(), e);

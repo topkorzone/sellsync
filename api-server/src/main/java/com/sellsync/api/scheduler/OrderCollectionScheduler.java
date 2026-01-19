@@ -10,6 +10,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import jakarta.annotation.PostConstruct;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -38,6 +39,13 @@ public class OrderCollectionScheduler {
     private static final int MAX_SYNC_DAYS = 7;            // 최대 동기화 범위 (일)
     private static final int FIRST_SYNC_DAYS = 7;          // 첫 동기화 범위 (일)
     private static final long DELAY_BETWEEN_STORES_MS = 1000; // 스토어 간 딜레이
+
+    @PostConstruct
+    public void init() {
+        log.info("=== [OrderCollectionScheduler] 초기화 완료 - 스케줄러 빈 생성됨 ===");
+        log.info("[OrderCollectionScheduler] 설정: MAX_SYNC_DAYS={}, FIRST_SYNC_DAYS={}", 
+                MAX_SYNC_DAYS, FIRST_SYNC_DAYS);
+    }
 
     /**
      * 30분 주기 주문 수집 스케줄러
@@ -123,37 +131,20 @@ public class OrderCollectionScheduler {
 
     /**
      * 수집 시작 시간 계산 (날짜 단위)
-     * - 첫 동기화: 최근 7일치 (오늘 포함)
-     * - 이후 동기화: 마지막 동기화 시점부터 (최대 7일로 제한)
-     * - 날짜 단위: 00:00:00 시작
+     * - 항상 오늘을 포함해서 1주일(7일) 수집
+     * - 예: 오늘이 2026-01-19라면, 2026-01-13 00:00:00 ~ 2026-01-19 23:59:59
      */
     private LocalDateTime calculateFromDateTime(Store store) {
-        LocalDateTime lastSynced = store.getLastSyncedAt();
         LocalDate today = LocalDate.now();
         
-        if (lastSynced == null) {
-            // 첫 동기화: 최근 7일 (오늘 포함)
-            // 예: 오늘이 2026-01-15라면, 2026-01-09 00:00:00부터 시작
-            LocalDate startDate = today.minusDays(FIRST_SYNC_DAYS - 1); // 7일 전 (오늘 포함)
-            log.info("[OrderCollectionScheduler] First sync for store {}, fetching {} days (from {})", 
-                    store.getStoreId(), FIRST_SYNC_DAYS, startDate);
-            return startDate.atStartOfDay();
-        }
-
-        // 마지막 동기화 이후 ~ 현재
-        // 단, 최대 7일로 제한 (날짜 단위)
-        LocalDate maxFromDate = today.minusDays(MAX_SYNC_DAYS - 1); // 7일 전 (오늘 포함)
-        LocalDate lastSyncedDate = lastSynced.toLocalDate();
+        // 오늘 포함 7일 전부터 수집
+        // 예: 오늘이 2026-01-19라면, 2026-01-13 00:00:00부터 시작
+        LocalDate startDate = today.minusDays(FIRST_SYNC_DAYS - 1); // 6일 전 = 오늘 포함 7일
         
-        if (lastSyncedDate.isBefore(maxFromDate)) {
-            log.warn("[OrderCollectionScheduler] Last sync too old for store {} ({}), limiting to {} days from {}", 
-                    store.getStoreId(), lastSyncedDate, MAX_SYNC_DAYS, maxFromDate);
-            return maxFromDate.atStartOfDay();
-        }
-
-        // 여유 시간 추가 (데이터 누락 방지)
-        // 마지막 동기화 날짜의 00:00:00부터 시작 (중복 허용, 멱등성 보장)
-        return lastSyncedDate.atStartOfDay();
+        log.info("[OrderCollectionScheduler] Store {} - fetching {} days from {} to {}", 
+                store.getStoreId(), FIRST_SYNC_DAYS, startDate, today);
+        
+        return startDate.atStartOfDay();
     }
 
     /**

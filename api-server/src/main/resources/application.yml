@@ -76,7 +76,7 @@ ecount:
 scheduling:
   order-collection:
     enabled: true
-    cron: "0 0/30 * * * *"  # 30분마다 (0분, 30분)
+    cron: "0 * * * * *"  # 1분마다 (테스트용, 운영에서는 "0 0/30 * * * *" 사용)
 
 # Logging
 logging:

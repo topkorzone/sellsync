@@ -106,9 +106,13 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
             @Param("endDate") LocalDate endDate
     );
 
-    // 4. 정산 수집 완료(COLLECTED) 상태 주문 조회
+    // 4. 정산 수집 완료(COLLECTED) 상태 주문 조회 (items JOIN FETCH 포함)
+    @Query("SELECT DISTINCT o FROM Order o " +
+           "LEFT JOIN FETCH o.items " +
+           "WHERE o.settlementStatus = :settlementStatus " +
+           "ORDER BY o.paidAt ASC")
     List<Order> findBySettlementStatusOrderByPaidAtAsc(
-            SettlementCollectionStatus settlementStatus, 
+            @Param("settlementStatus") SettlementCollectionStatus settlementStatus, 
             Pageable pageable
     );
 

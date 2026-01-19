@@ -4,7 +4,6 @@ import com.sellsync.api.domain.erp.service.ErpConfigService;
 import com.sellsync.api.domain.order.enums.Marketplace;
 import com.sellsync.api.domain.settlement.dto.SettlementBatchResponse;
 import com.sellsync.api.domain.settlement.dto.SettlementCollectionResult;
-import com.sellsync.api.domain.settlement.enums.SettlementStatus;
 import com.sellsync.api.domain.settlement.repository.SettlementBatchRepository;
 import com.sellsync.api.domain.settlement.service.SettlementCollectionService;
 import com.sellsync.api.domain.settlement.service.SettlementPostingService;
@@ -26,7 +25,7 @@ import java.util.UUID;
  * 역할:
  * - 주기적 정산 데이터 수집 (4시간마다)
  * - settlement_batches, settlement_orders 테이블 생성
- * - POSTING_READY 상태 전표 자동 생성 (설정에 따라 조건부 실행)
+ * - VALIDATED 상태 중 전표 미생성 배치 자동 전표 생성 (설정에 따라 조건부 실행)
  * 
  * 주의:
  * - 자동 전표 생성은 ERP 설정에서 활성화한 경우에만 실행됩니다
@@ -125,17 +124,22 @@ public class SettlementScheduler {
     }
 
     /**
-     * POSTING_READY 상태 전표 자동 생성 (조건부 실행)
+     * VALIDATED 상태 중 전표 미생성 배치에 대한 자동 전표 생성 (조건부 실행)
      * 
      * 스케줄: 매 10분마다 실행
      * 
      * ⚠️ 중요: 자동 전표 생성은 ERP 설정에서 auto_posting_enabled=true인 경우에만 실행됩니다.
      * 설정 변경: PUT /api/erp/configs/{erpCode} 또는 POST /api/erp/configs/{erpCode}/toggle-auto-posting
+     * 
+     * 조회 조건:
+     * - settlementStatus = VALIDATED
+     * - commissionPostingId IS NULL
+     * - receiptPostingId IS NULL
      */
     @Scheduled(fixedDelay = 600000, initialDelay = 30000) // 10분마다, 시작 후 30초 대기
-    public void processPostingReadyBatches() {
+    public void processValidatedBatchesWithoutPostings() {
         try {
-            log.debug("[스케줄러] POSTING_READY 전표 생성 체크");
+            log.debug("[스케줄러] 전표 미생성 배치 체크");
 
             // TODO: 실제 운영에서는 tenant별로 분리 처리
             UUID tenantId = getTenantId(); // Mock
@@ -149,26 +153,22 @@ public class SettlementScheduler {
                 return;
             }
 
-            log.info("[스케줄러] POSTING_READY 전표 생성 시작 (자동화 활성화)");
+            log.info("[스케줄러] 전표 미생성 배치 전표 생성 시작 (자동화 활성화)");
 
-            // POSTING_READY 상태 배치 조회 (최대 5건)
+            // VALIDATED 상태이면서 전표가 없는 배치 조회 (최대 5건)
             List<SettlementBatchResponse> batches = settlementBatchRepository
-                    .findByTenantIdAndSettlementStatusOrderByCollectedAtAsc(
-                        tenantId, 
-                        SettlementStatus.POSTING_READY, 
-                        PageRequest.of(0, 5)
-                    )
+                    .findPendingPostingBatches(tenantId, PageRequest.of(0, 5))
                     .getContent()
                     .stream()
                     .map(SettlementBatchResponse::from)
                     .toList();
 
             if (batches.isEmpty()) {
-                log.debug("[스케줄러] POSTING_READY 배치 없음");
+                log.debug("[스케줄러] 전표 미생성 배치 없음");
                 return;
             }
 
-            log.info("[스케줄러] POSTING_READY 배치 발견: {} 건", batches.size());
+            log.info("[스케줄러] 전표 미생성 배치 발견: {} 건", batches.size());
 
             // 전표 생성
             for (SettlementBatchResponse batch : batches) {
@@ -184,10 +184,10 @@ public class SettlementScheduler {
                 }
             }
 
-            log.info("[스케줄러] POSTING_READY 전표 생성 완료: {} 건 처리", batches.size());
+            log.info("[스케줄러] 전표 생성 완료: {} 건 처리", batches.size());
 
         } catch (Exception e) {
-            log.error("[스케줄러] POSTING_READY 전표 생성 실패: {}", e.getMessage(), e);
+            log.error("[스케줄러] 전표 생성 실패: {}", e.getMessage(), e);
         }
     }
 

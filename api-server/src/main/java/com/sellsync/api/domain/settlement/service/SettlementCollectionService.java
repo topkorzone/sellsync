@@ -116,6 +116,12 @@ public class SettlementCollectionService {
 
     /**
      * 주문 테이블에 정산 정보 벌크 업데이트
+     * 
+     * 주의: 한 주문에 대해 여러 element가 올 수 있음
+     * - productOrderType = "PROD_ORDER": 상품 주문 (상품 수수료)
+     * - productOrderType = "DELIVERY": 배송비 (배송비 수수료)
+     * 
+     * 따라서 주문별로 그룹화하여 타입별로 수수료를 구분해야 함
      */
     private int bulkUpdateOrderSettlementInfo(
             UUID tenantId,
@@ -132,35 +138,62 @@ public class SettlementCollectionService {
             return 0;
         }
 
-        // 배열 준비 (배송비 수수료 추가)
-        String[] orderIds = new String[matchedElements.size()];
-        Long[] commissionAmounts = new Long[matchedElements.size()];
-        Long[] shippingCommissionAmounts = new Long[matchedElements.size()];
-        Long[] expectedSettlementAmounts = new Long[matchedElements.size()];
-        LocalDate[] settlementDates = new LocalDate[matchedElements.size()];
-
-        for (int i = 0; i < matchedElements.size(); i++) {
-            DailySettlementElement e = matchedElements.get(i);
-            orderIds[i] = e.getOrderId();
-            commissionAmounts[i] = e.getTotalCommission();
+        // 주문별로 그룹화하여 타입별 수수료 계산
+        Map<String, OrderSettlementData> orderSettlementMap = new java.util.HashMap<>();
+        
+        for (DailySettlementElement e : matchedElements) {
+            String orderId = e.getOrderId();
+            String productOrderType = e.getProductOrderType();
             
-            // 배송비 수수료 계산: shippingSettleAmount가 있으면 약 1.9% 적용
-            // 실제로는 스마트스토어 API에서 배송비 수수료를 명시적으로 제공하지 않으므로 계산
-            Long shippingSettleAmount = e.getShippingSettleAmount();
-            if (shippingSettleAmount != null && shippingSettleAmount > 0) {
-                shippingCommissionAmounts[i] = Math.round(shippingSettleAmount * 0.019);
+            OrderSettlementData data = orderSettlementMap.computeIfAbsent(orderId, k -> new OrderSettlementData());
+            
+            if ("DELIVERY".equals(productOrderType)) {
+                // 배송비 타입: 배송비 수수료와 배송비 정산금액 저장
+                data.shippingCommission += e.getTotalCommission();
+                data.shippingSettlement += e.getCalculatedSettleAmount();
             } else {
-                shippingCommissionAmounts[i] = 0L;
+                // 상품 타입 (PROD_ORDER 등): 상품 수수료와 상품 정산금액 저장
+                data.productCommission += e.getTotalCommission();
+                data.productSettlement += e.getCalculatedSettleAmount();
             }
+        }
+        
+        // 배열로 변환
+        int size = orderSettlementMap.size();
+        String[] orderIds = new String[size];
+        Long[] commissionAmounts = new Long[size];
+        Long[] shippingCommissionAmounts = new Long[size];
+        Long[] expectedSettlementAmounts = new Long[size];
+        LocalDate[] settlementDates = new LocalDate[size];
+
+        int i = 0;
+        for (Map.Entry<String, OrderSettlementData> entry : orderSettlementMap.entrySet()) {
+            orderIds[i] = entry.getKey();
+            OrderSettlementData data = entry.getValue();
             
-            expectedSettlementAmounts[i] = e.getCalculatedSettleAmount();
+            commissionAmounts[i] = data.productCommission;  // 상품 수수료만
+            shippingCommissionAmounts[i] = data.shippingCommission;  // 배송비 수수료만
+            expectedSettlementAmounts[i] = data.productSettlement + data.shippingSettlement;  // 전체 정산금액
             settlementDates[i] = settlementDate;
+            
+            i++;
         }
 
+        log.info("[정산 정보 업데이트] 주문 수: {}", size);
         return orderRepository.bulkUpdateSettlementInfo(
             tenantId, orderIds, commissionAmounts, shippingCommissionAmounts,
             expectedSettlementAmounts, settlementDates
         );
+    }
+    
+    /**
+     * 주문별 정산 데이터 임시 저장용 클래스
+     */
+    private static class OrderSettlementData {
+        long productCommission = 0L;      // 상품 수수료
+        long shippingCommission = 0L;     // 배송비 수수료
+        long productSettlement = 0L;      // 상품 정산금액
+        long shippingSettlement = 0L;     // 배송비 정산금액
     }
 
     /**

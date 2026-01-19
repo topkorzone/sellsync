@@ -171,4 +171,17 @@ public interface ProductMappingRepository extends JpaRepository<ProductMapping, 
      * 매핑 상태별 수 집계
      */
     long countByTenantIdAndMappingStatus(UUID tenantId, MappingStatus status);
+
+    /**
+     * 같은 상품명을 가진 매핑 목록 조회 (동일 상품 일괄 매핑용)
+     */
+    @Query("SELECT m FROM ProductMapping m WHERE m.tenantId = :tenantId " +
+           "AND LOWER(TRIM(m.productName)) = LOWER(TRIM(:productName)) " +
+           "AND m.mappingStatus = :status " +
+           "AND m.isActive = TRUE")
+    List<ProductMapping> findByTenantIdAndProductNameAndMappingStatus(
+        @Param("tenantId") UUID tenantId,
+        @Param("productName") String productName,
+        @Param("status") MappingStatus status
+    );
 }

@@ -248,7 +248,7 @@ public class SmartStoreOrderClient implements MarketplaceOrderClient {
         // 단일 상품 주문인 경우
         MarketplaceOrderItemDto item = MarketplaceOrderItemDto.builder()
                 .marketplaceProductId(productOrderNode.path("productId").asText())
-                .marketplaceSku(productOrderNode.path("productOrderId").asText())
+                .marketplaceSku(extractOptionCode(productOrderNode))
                 .productName(productOrderNode.path("productName").asText())
                 .optionName(optionName)
                 .quantity(productOrderNode.path("quantity").asInt(1))
@@ -285,6 +285,38 @@ public class SmartStoreOrderClient implements MarketplaceOrderClient {
         
         // productOption이 없는 경우 null 반환 (옵션 없는 상품)
         log.warn("[SmartStore] ✗ No option info found for product: {} (상품에 옵션이 없음)", productName);
+        return null;
+    }
+    
+    /**
+     * 스마트스토어 옵션 코드 추출
+     * 
+     * 동일 상품+옵션은 동일한 값을 반환해야 ProductMapping이 재사용됨.
+     * 
+     * 우선순위:
+     * 1. optionCode - 네이버가 옵션별로 자동 부여하는 고유 ID
+     * 2. optionManageCode - 판매자가 설정한 옵션 관리 코드
+     * 3. null - 옵션이 없는 단일 상품
+     * 
+     * 주의: productOrderId는 주문별 고유 ID이므로 절대 사용 금지!
+     */
+    private String extractOptionCode(JsonNode productOrderNode) {
+        // 1. optionCode (네이버 자동 부여 옵션 ID)
+        String optionCode = productOrderNode.path("optionCode").asText(null);
+        if (optionCode != null && !optionCode.isEmpty() && !optionCode.equals("null")) {
+            log.debug("[SmartStore] Using optionCode: {}", optionCode);
+            return optionCode;
+        }
+        
+        // 2. optionManageCode (판매자 설정 옵션 관리 코드)
+        String optionManageCode = productOrderNode.path("optionManageCode").asText(null);
+        if (optionManageCode != null && !optionManageCode.isEmpty() && !optionManageCode.equals("null")) {
+            log.debug("[SmartStore] Using optionManageCode: {}", optionManageCode);
+            return optionManageCode;
+        }
+        
+        // 3. 옵션 없는 단일 상품
+        log.debug("[SmartStore] No option code found, using null (single product without options)");
         return null;
     }
     

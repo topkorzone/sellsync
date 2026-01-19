@@ -40,7 +40,7 @@ public class ErpConfig extends BaseEntity {
     
     /**
      * 전표 자동 생성 여부
-     * true: 정산 배치가 POSTING_READY 상태가 되면 자동으로 전표 생성
+     * true: 정산 배치가 VALIDATED 상태이고 전표가 없으면 자동으로 전표 생성
      * false: 수동으로만 전표 생성 가능
      */
     @Column(name = "auto_posting_enabled", nullable = false)
