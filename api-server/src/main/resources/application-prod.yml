@@ -3,7 +3,7 @@ spring:
     # Supabase Session Pooler (for production)
     # Use transaction mode pooler for optimal connection management
     # Format: postgresql://[user].[project-ref]:[password]@[project-ref].pooler.supabase.com:6543/postgres?pgbouncer=true
-    url: jdbc:postgresql://{project-ref}.pooler.supabase.com:6543/postgres?pgbouncer=true
+    url: jdbc:postgresql://{project-ref}.pooler.supabase.com:6543/postgres?pgbouncer=true&options=-c%20statement_timeout=60000
     username: postgres.{project-ref}
     password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
@@ -15,6 +15,7 @@ spring:
       max-lifetime: 900000
       pool-name: SellSync-Prod-Pool
       leak-detection-threshold: 60000
+      connection-init-sql: SET statement_timeout = '60s'
   
   jpa:
     show-sql: false

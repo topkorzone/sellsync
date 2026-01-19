@@ -26,6 +26,12 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
     // 멱등성: 마켓 주문번호로 조회
     Optional<Order> findByStoreIdAndMarketplaceOrderId(UUID storeId, String marketplaceOrderId);
     
+    // 멱등성: 마켓 주문번호로 조회 (items fetch join) - 주문 수집용
+    @Query("SELECT o FROM Order o LEFT JOIN FETCH o.items WHERE o.storeId = :storeId AND o.marketplaceOrderId = :marketplaceOrderId")
+    Optional<Order> findByStoreIdAndMarketplaceOrderIdWithItems(
+            @Param("storeId") UUID storeId, 
+            @Param("marketplaceOrderId") String marketplaceOrderId);
+    
     // 테넌트 + 마켓 주문번호로 조회 (송장 등록용)
     Optional<Order> findByTenantIdAndMarketplaceOrderId(UUID tenantId, String marketplaceOrderId);
 

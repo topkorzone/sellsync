@@ -2,6 +2,7 @@ package com.sellsync.api.domain.auth.controller;
 
 import com.sellsync.api.domain.auth.dto.LoginRequest;
 import com.sellsync.api.domain.auth.dto.RefreshRequest;
+import com.sellsync.api.domain.auth.dto.RegisterRequest;
 import com.sellsync.api.domain.auth.dto.TokenResponse;
 import com.sellsync.api.domain.auth.dto.UserResponse;
 import com.sellsync.api.domain.auth.service.AuthService;
@@ -14,6 +15,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 인증 컨트롤러
@@ -27,6 +29,44 @@ import java.util.Map;
 public class AuthController {
     
     private final AuthService authService;
+    
+    /**
+     * 회원가입
+     * 
+     * POST /api/auth/register
+     * 
+     * @param request 회원가입 요청
+     * @return 생성된 사용자 ID
+     */
+    @PostMapping("/register")
+    public ResponseEntity<Map<String, Object>> register(@Valid @RequestBody RegisterRequest request) {
+        try {
+            UUID userId = authService.register(request);
+            
+            return ResponseEntity.status(201).body(Map.of(
+                    "ok", true,
+                    "data", Map.of("userId", userId.toString())
+            ));
+        } catch (IllegalArgumentException e) {
+            log.warn("회원가입 실패: {}", e.getMessage());
+            return ResponseEntity.status(400).body(Map.of(
+                    "ok", false,
+                    "error", Map.of(
+                            "code", "REGISTRATION_FAILED",
+                            "message", e.getMessage()
+                    )
+            ));
+        } catch (Exception e) {
+            log.error("회원가입 실패: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "ok", false,
+                    "error", Map.of(
+                            "code", "INTERNAL_ERROR",
+                            "message", "회원가입 처리 중 오류가 발생했습니다."
+                    )
+            ));
+        }
+    }
     
     /**
      * 로그인

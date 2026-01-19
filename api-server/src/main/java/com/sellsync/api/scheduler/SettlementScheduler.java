@@ -58,8 +58,8 @@ public class SettlementScheduler {
      * 
      * TODO: 실제 운영에서는 tenant별로 분리 실행 필요
      */
-    // @Scheduled(cron = "0 0 */4 * * *") // 4시간마다 (00, 04, 08, 12, 16, 20시)
-    @Scheduled(cron = "0 */5 * * * *") // 5분마다 (테스트용)
+    @Scheduled(cron = "0 0 */4 * * *") // 4시간마다 (00, 04, 08, 12, 16, 20시)
+    // @Scheduled(cron = "0 */5 * * * *") // 5분마다 (테스트용)
     public void collectDailySettlements() {
         log.info("[스케줄러] 일별 정산 수집 배치 시작");
         

@@ -53,10 +53,12 @@ public class OrderCollectionService {
         private int failed;
     }
 
+    private static final int BATCH_SIZE = 20; // 배치 단위 (20개씩 처리, timeout 방지)
+
     /**
-     * 주문 수집 실행
+     * 주문 수집 실행 (배치 처리)
+     * 대량 주문 처리 시 timeout을 방지하기 위해 배치 단위로 트랜잭션 분할
      */
-    @Transactional
     public CollectionResult collectOrders(UUID tenantId, UUID storeId, LocalDateTime from, LocalDateTime to) {
         Store store = storeRepository.findById(storeId)
                 .orElseThrow(() -> new IllegalArgumentException("Store not found: " + storeId));
@@ -77,9 +79,46 @@ public class OrderCollectionService {
 
         int created = 0, updated = 0, failed = 0;
 
-        for (MarketplaceOrderDto dto : fetchedOrders) {
+        // 배치 단위로 분할 처리
+        for (int i = 0; i < fetchedOrders.size(); i += BATCH_SIZE) {
+            int end = Math.min(i + BATCH_SIZE, fetchedOrders.size());
+            List<MarketplaceOrderDto> batch = fetchedOrders.subList(i, end);
+            
+            log.debug("[OrderCollection] Processing batch {}-{} of {}", 
+                    i + 1, end, fetchedOrders.size());
+            
             try {
-                boolean isNew = saveOrder(tenantId, storeId, store.getMarketplace(), dto);
+                CollectionResult batchResult = processBatch(tenantId, storeId, store.getMarketplace(), batch);
+                created += batchResult.getCreated();
+                updated += batchResult.getUpdated();
+                failed += batchResult.getFailed();
+            } catch (Exception e) {
+                log.error("[OrderCollection] Batch processing failed for orders {}-{}: {}", 
+                        i + 1, end, e.getMessage(), e);
+                failed += batch.size(); // 배치 전체 실패 처리
+            }
+        }
+
+        return CollectionResult.builder()
+                .totalFetched(fetchedOrders.size())
+                .created(created)
+                .updated(updated)
+                .failed(failed)
+                .build();
+    }
+
+    /**
+     * 배치 단위 주문 처리 (트랜잭션 분리)
+     * 타임아웃: 30초 (배치당)
+     */
+    @Transactional(timeout = 30)
+    protected CollectionResult processBatch(UUID tenantId, UUID storeId, Marketplace marketplace, 
+                                           List<MarketplaceOrderDto> batch) {
+        int created = 0, updated = 0, failed = 0;
+
+        for (MarketplaceOrderDto dto : batch) {
+            try {
+                boolean isNew = saveOrder(tenantId, storeId, marketplace, dto);
                 if (isNew) created++;
                 else updated++;
             } catch (Exception e) {
@@ -89,7 +128,7 @@ public class OrderCollectionService {
         }
 
         return CollectionResult.builder()
-                .totalFetched(fetchedOrders.size())
+                .totalFetched(batch.size())
                 .created(created)
                 .updated(updated)
                 .failed(failed)
@@ -155,7 +194,8 @@ public class OrderCollectionService {
      */
     private boolean saveOrder(UUID tenantId, UUID storeId, Marketplace marketplace, MarketplaceOrderDto dto) {
         // Upsert: 기존 주문 있으면 업데이트, 없으면 생성
-        Order order = orderRepository.findByStoreIdAndMarketplaceOrderId(storeId, dto.getMarketplaceOrderId())
+        // items 컬렉션을 사용하므로 fetch join으로 즉시 로딩
+        Order order = orderRepository.findByStoreIdAndMarketplaceOrderIdWithItems(storeId, dto.getMarketplaceOrderId())
                 .orElse(null);
 
         boolean isNew = (order == null);

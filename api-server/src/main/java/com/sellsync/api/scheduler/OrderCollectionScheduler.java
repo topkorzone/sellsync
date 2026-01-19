@@ -39,6 +39,8 @@ public class OrderCollectionScheduler {
     private static final int MAX_SYNC_DAYS = 7;            // 최대 동기화 범위 (일)
     private static final int FIRST_SYNC_DAYS = 7;          // 첫 동기화 범위 (일)
     private static final long DELAY_BETWEEN_STORES_MS = 1000; // 스토어 간 딜레이
+    
+    private volatile boolean isRunning = false; // 중복 실행 방지 플래그
 
     @PostConstruct
     public void init() {
@@ -53,17 +55,25 @@ public class OrderCollectionScheduler {
      */
     @Scheduled(cron = "${scheduling.order-collection.cron:0 0/30 * * * *}")
     public void collectOrdersScheduled() {
-        log.info("=== [OrderCollectionScheduler] Starting scheduled collection ===");
+        // 중복 실행 방지
+        if (isRunning) {
+            log.warn("[OrderCollectionScheduler] Previous collection still running, skipping this execution");
+            return;
+        }
         
-        long startTime = System.currentTimeMillis();
-        int totalStores = 0;
-        int successStores = 0;
-        int failedStores = 0;
+        isRunning = true;
+        try {
+            log.info("=== [OrderCollectionScheduler] Starting scheduled collection ===");
+            
+            long startTime = System.currentTimeMillis();
+            int totalStores = 0;
+            int successStores = 0;
+            int failedStores = 0;
 
-        List<Store> activeStores = storeRepository.findByIsActive(true);
-        totalStores = activeStores.size();
-        
-        log.info("[OrderCollectionScheduler] Found {} active stores", totalStores);
+            List<Store> activeStores = storeRepository.findByIsActive(true);
+            totalStores = activeStores.size();
+            
+            log.info("[OrderCollectionScheduler] Found {} active stores", totalStores);
 
         for (Store store : activeStores) {
             try {
@@ -73,6 +83,16 @@ public class OrderCollectionScheduler {
                 // Rate Limit 방지를 위한 딜레이
                 TimeUnit.MILLISECONDS.sleep(DELAY_BETWEEN_STORES_MS);
                 
+            } catch (org.springframework.dao.QueryTimeoutException e) {
+                failedStores++;
+                log.error("[OrderCollectionScheduler] Query timeout for store {}: {}. " +
+                        "대량 데이터 처리 중 timeout 발생. 배치 크기를 줄이거나 기간을 단축하세요.", 
+                        store.getStoreId(), e.getMessage());
+            } catch (org.springframework.transaction.UnexpectedRollbackException e) {
+                failedStores++;
+                log.error("[OrderCollectionScheduler] Transaction rollback for store {}: {}. " +
+                        "트랜잭션 중 오류 발생으로 자동 롤백됨.", 
+                        store.getStoreId(), e.getMessage());
             } catch (Exception e) {
                 failedStores++;
                 log.error("[OrderCollectionScheduler] Failed to collect orders for store {}: {}", 
@@ -80,9 +100,12 @@ public class OrderCollectionScheduler {
             }
         }
 
-        long elapsed = System.currentTimeMillis() - startTime;
-        log.info("=== [OrderCollectionScheduler] Completed: total={}, success={}, failed={}, elapsed={}ms ===",
-                totalStores, successStores, failedStores, elapsed);
+            long elapsed = System.currentTimeMillis() - startTime;
+            log.info("=== [OrderCollectionScheduler] Completed: total={}, success={}, failed={}, elapsed={}ms ===",
+                    totalStores, successStores, failedStores, elapsed);
+        } finally {
+            isRunning = false; // 중복 실행 방지 플래그 해제
+        }
     }
 
     /**
