@@ -181,11 +181,20 @@ public class NaverSmartStoreSettlementClient implements MarketplaceSettlementCli
                 if (apiResponse.getElements() != null && !apiResponse.getElements().isEmpty()) {
                     DailySettlementElement firstElement = apiResponse.getElements().get(0);
                     log.info("[SmartStore Settlement] 🔍 첫 번째 element 상세:");
+                    log.info("  - productOrderId: {}", firstElement.getProductOrderId());
+                    log.info("  - orderId: {}", firstElement.getOrderId());
+                    log.info("  - productName: {}", firstElement.getProductName());
                     log.info("  - settleBasisStartDate: {}", firstElement.getSettleBasisStartDate());
                     log.info("  - settleBasisEndDate: {}", firstElement.getSettleBasisEndDate());
                     log.info("  - settleExpectDate: {}", firstElement.getSettleExpectDate());
+                    log.info("  - paySettleAmount: {}", firstElement.getPaySettleAmount());
                     log.info("  - settleAmount: {}", firstElement.getSettleAmount());
-                    log.info("  - commissionAmount: {}", firstElement.getCommissionAmount());
+                    log.info("  - commissionAmount (레거시): {}", firstElement.getCommissionAmount());
+                    log.info("  - totalPayCommissionAmount: {}", firstElement.getTotalPayCommissionAmount());
+                    log.info("  - sellingInterlockCommissionAmount: {}", firstElement.getSellingInterlockCommissionAmount());
+                    log.info("  - freeInstallmentCommissionAmount: {}", firstElement.getFreeInstallmentCommissionAmount());
+                    log.info("  - getTotalCommission() 계산값: {}", firstElement.getTotalCommission());
+                    log.info("  - settleExpectAmount: {}", firstElement.getSettleExpectAmount());
                 }
                 
                 return apiResponse;

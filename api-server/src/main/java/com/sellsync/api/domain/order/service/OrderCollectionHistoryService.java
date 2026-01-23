@@ -103,4 +103,82 @@ public class OrderCollectionHistoryService {
 
         return historyRepository.save(history);
     }
+
+    /**
+     * 비동기 수집을 위한 초기 이력 생성 (IN_PROGRESS 상태)
+     */
+    @Transactional
+    public OrderCollectionHistory createInitialHistory(
+            Store store,
+            LocalDateTime from,
+            LocalDateTime to) {
+        
+        OrderCollectionHistory history = OrderCollectionHistory.builder()
+                .tenantId(store.getTenantId())
+                .storeId(store.getStoreId())
+                .startedAt(LocalDateTime.now())
+                .rangeFrom(from)
+                .rangeTo(to)
+                .triggerType("MANUAL")
+                .status("IN_PROGRESS")
+                .totalFetched(0)
+                .createdCount(0)
+                .updatedCount(0)
+                .failedCount(0)
+                .build();
+
+        log.info("[OrderCollectionHistory] Created initial history: store={}, jobId={}", 
+                store.getStoreId(), history.getHistoryId());
+
+        return historyRepository.save(history);
+    }
+
+    /**
+     * 비동기 수집 결과로 이력 업데이트
+     */
+    @Transactional
+    public void updateHistoryWithResult(
+            OrderCollectionHistory history,
+            OrderCollectionService.CollectionResult result) {
+        
+        String status;
+        if (result.getFailed() == 0) {
+            status = "SUCCESS";
+        } else if (result.getCreated() + result.getUpdated() > 0) {
+            status = "PARTIAL";
+        } else {
+            status = "FAILED";
+        }
+
+        history.setStatus(status);
+        history.setFinishedAt(LocalDateTime.now());
+        history.setTotalFetched(result.getTotalFetched());
+        history.setCreatedCount(result.getCreated());
+        history.setUpdatedCount(result.getUpdated());
+        history.setFailedCount(result.getFailed());
+
+        historyRepository.save(history);
+
+        log.info("[OrderCollectionHistory] Updated history: jobId={}, status={}, fetched={}, created={}, updated={}, failed={}",
+                history.getHistoryId(), status, result.getTotalFetched(), 
+                result.getCreated(), result.getUpdated(), result.getFailed());
+    }
+
+    /**
+     * 비동기 수집 에러로 이력 업데이트
+     */
+    @Transactional
+    public void updateHistoryWithError(
+            OrderCollectionHistory history,
+            String errorMessage) {
+        
+        history.setStatus("FAILED");
+        history.setFinishedAt(LocalDateTime.now());
+        history.setErrorMessage(errorMessage);
+
+        historyRepository.save(history);
+
+        log.error("[OrderCollectionHistory] Updated history with error: jobId={}, error={}",
+                history.getHistoryId(), errorMessage);
+    }
 }

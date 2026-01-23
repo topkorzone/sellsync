@@ -175,6 +175,10 @@ public class FieldValueExtractor {
             switch (fieldName) {
                 case "shippingFee":
                     return order.getTotalShippingAmount();
+                case "bundleOrderId":
+                    return order.getBundleOrderId();
+                case "marketplaceOrderId":
+                    return order.getMarketplaceOrderId();
                 default:
                     log.warn("[Order 필드 없음] fieldName={}", fieldName);
                     return null;

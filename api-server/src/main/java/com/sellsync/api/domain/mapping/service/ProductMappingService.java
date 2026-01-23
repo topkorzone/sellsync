@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * 상품 매핑 서비스
@@ -43,6 +44,139 @@ public class ProductMappingService {
     private static final double AUTO_MATCH_THRESHOLD = 0.8;
     private static final double SUGGEST_THRESHOLD = 0.5;
 
+    /**
+     * 벌크 매핑 생성/조회 (멱등 Upsert)
+     * - 여러 상품 매핑을 한 번에 생성/조회
+     * - 기존 매핑 일괄 조회로 DB 호출 최소화
+     * 
+     * @param requests 매핑 요청 목록
+     * @return 생성/조회된 매핑 목록 (요청 순서 유지)
+     */
+    @Transactional
+    public List<ProductMappingResponse> bulkCreateOrGet(List<ProductMappingRequest> requests) {
+        if (requests == null || requests.isEmpty()) {
+            return new ArrayList<>();
+        }
+        
+        // 1. 기존 매핑 일괄 조회 (멱등키로)
+        Map<String, ProductMapping> existingMappings = new HashMap<>();
+        
+        // 테넌트/스토어/마켓별로 그룹핑하여 조회 (성능 최적화)
+        Map<String, List<ProductMappingRequest>> grouped = requests.stream()
+                .collect(Collectors.groupingBy(r -> 
+                    String.format("%s:%s:%s", r.getTenantId(), r.getStoreId(), r.getMarketplace())
+                ));
+        
+        for (Map.Entry<String, List<ProductMappingRequest>> entry : grouped.entrySet()) {
+            List<ProductMappingRequest> group = entry.getValue();
+            if (group.isEmpty()) continue;
+            
+            ProductMappingRequest first = group.get(0);
+            List<ProductMapping> found = productMappingRepository
+                    .findByTenantIdAndStoreIdAndMarketplace(
+                            first.getTenantId(),
+                            first.getStoreId(),
+                            first.getMarketplace()
+                    );
+            
+            for (ProductMapping mapping : found) {
+                String key = buildMappingKey(
+                        mapping.getTenantId(),
+                        mapping.getStoreId(),
+                        mapping.getMarketplace(),
+                        mapping.getMarketplaceProductId(),
+                        mapping.getMarketplaceSku()
+                );
+                existingMappings.put(key, mapping);
+            }
+        }
+        
+        log.debug("[벌크 매핑] 기존 매핑 {}개 조회됨 (요청 {}개)", 
+                existingMappings.size(), requests.size());
+        
+        // 2. 신규 매핑 필터링
+        List<ProductMapping> newMappings = new ArrayList<>();
+        List<ProductMappingResponse> results = new ArrayList<>();
+        
+        for (ProductMappingRequest request : requests) {
+            String key = buildMappingKey(
+                    request.getTenantId(),
+                    request.getStoreId(),
+                    request.getMarketplace(),
+                    request.getMarketplaceProductId(),
+                    request.getMarketplaceSku()
+            );
+            
+            ProductMapping existing = existingMappings.get(key);
+            if (existing != null) {
+                // 기존 매핑 반환
+                results.add(ProductMappingResponse.from(existing));
+            } else {
+                // 신규 매핑 생성 준비
+                ProductMapping newMapping = ProductMapping.builder()
+                        .tenantId(request.getTenantId())
+                        .storeId(request.getStoreId())
+                        .marketplace(request.getMarketplace())
+                        .marketplaceProductId(request.getMarketplaceProductId())
+                        .marketplaceSku(request.getMarketplaceSku())
+                        .erpCode(request.getErpCode())
+                        .erpItemCode(request.getErpItemCode())
+                        .erpItemName(request.getErpItemName())
+                        .warehouseCode(request.getWarehouseCode())
+                        .productName(request.getProductName())
+                        .optionName(request.getOptionName())
+                        .isActive(request.getIsActive() != null ? request.getIsActive() : true)
+                        .mappingNote(request.getMappingNote())
+                        .build();
+                
+                newMappings.add(newMapping);
+                results.add(null); // 나중에 저장 후 채움
+            }
+        }
+        
+        // 3. 벌크 저장
+        if (!newMappings.isEmpty()) {
+            try {
+                List<ProductMapping> saved = productMappingRepository.saveAll(newMappings);
+                log.info("[벌크 매핑 생성] {}개 신규 매핑 저장됨", saved.size());
+                
+                // 4. 결과에 신규 저장된 매핑 채우기
+                int savedIndex = 0;
+                for (int i = 0; i < results.size(); i++) {
+                    if (results.get(i) == null) {
+                        results.set(i, ProductMappingResponse.from(saved.get(savedIndex++)));
+                    }
+                }
+            } catch (DataIntegrityViolationException e) {
+                // 동시성: 중복 insert 발생 시 폴백 (개별 처리)
+                log.warn("[벌크 매핑 동시성] Unique 제약 위반 감지, 개별 처리로 폴백", e);
+                
+                for (int i = 0; i < requests.size(); i++) {
+                    if (results.get(i) == null) {
+                        try {
+                            ProductMappingResponse response = createOrGet(requests.get(i));
+                            results.set(i, response);
+                        } catch (Exception ex) {
+                            log.error("[벌크 매핑 개별 처리 실패] request={}", requests.get(i), ex);
+                            throw ex;
+                        }
+                    }
+                }
+            }
+        }
+        
+        return results;
+    }
+    
+    /**
+     * 매핑 키 생성 (멱등성 보장)
+     */
+    private String buildMappingKey(UUID tenantId, UUID storeId, Marketplace marketplace, 
+                                    String productId, String sku) {
+        return String.format("%s:%s:%s:%s:%s", 
+                tenantId, storeId, marketplace, productId, sku);
+    }
+    
     /**
      * 매핑 생성/조회 (멱등 Upsert)
      * - 동일 멱등키로는 1회만 생성

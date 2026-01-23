@@ -48,12 +48,15 @@ public class SyncJobController {
     private final StoreRepository storeRepository;
 
     /**
-     * 수동 동기화 실행
+     * 수동 동기화 실행 (비동기)
      * POST /api/sync/jobs
+     * 
+     * 즉시 작업 ID를 반환하고 백그라운드에서 동기화를 실행합니다.
+     * 진행 상황은 GET /api/sync/jobs/{jobId} 또는 GET /api/sync/jobs/status/{storeId}로 확인하세요.
      */
     @PostMapping
     @PreAuthorize("hasAnyRole('OPERATOR', 'TENANT_ADMIN', 'SUPER_ADMIN')")
-    public ResponseEntity<ApiResponse<SyncJobResponse>> createSyncJob(
+    public ResponseEntity<ApiResponse<Map<String, Object>>> createSyncJob(
             @AuthenticationPrincipal CustomUserDetails user,
             @Valid @RequestBody SyncJobRequest request) {
         
@@ -70,42 +73,59 @@ public class SyncJobController {
                     .body(ApiResponse.error("FORBIDDEN", "스토어에 대한 접근 권한이 없습니다"));
         }
 
-        // 기본값 설정: 날짜 단위로 7일치 수집
-        // 예: 오늘이 2026-01-15라면, 2026-01-15 00:00:00 ~ 2026-01-15 23:59:59까지 7일간
+        // 기본값 설정: 날짜 단위로 30일치 수집 (UI 수동 동기화)
+        // 예: 오늘이 2026-01-22라면, 2025-12-24 00:00:00 ~ 2026-01-22 23:59:59까지 30일간
         LocalDateTime to = request.getTo() != null 
                 ? request.getTo() 
                 : LocalDate.now().atTime(LocalTime.MAX); // 오늘 23:59:59.999...
         
         LocalDateTime from = request.getFrom() != null 
                 ? request.getFrom() 
-                : LocalDate.now().minusDays(6).atStartOfDay(); // 7일 전 00:00:00 (오늘 포함 7일)
+                : LocalDate.now().minusMonths(1).atStartOfDay(); // 30일 전 00:00:00 (오늘 포함 30일)
 
-        // 동기화 실행
-        OrderCollectionHistory history;
-        try {
-            OrderCollectionService.CollectionResult result = 
-                    collectionService.collectOrders(user.getTenantId(), request.getStoreId(), from, to);
+        // 초기 이력 생성 (IN_PROGRESS 상태)
+        OrderCollectionHistory history = historyService.createInitialHistory(store, from, to);
+        UUID jobId = history.getHistoryId();
 
-            // 이력 저장
-            history = historyService.saveManualCollectionHistory(store, from, to, result, null);
+        log.info("[SyncJob] Created job {} for store {} (async execution)", jobId, store.getStoreId());
 
-            // 마지막 동기화 시간 업데이트
-            store.setLastSyncedAt(LocalDateTime.now());
-            storeRepository.save(store);
+        // 비동기 실행 (백그라운드)
+        new Thread(() -> {
+            try {
+                log.info("[SyncJob] Starting async collection for job {}", jobId);
+                
+                OrderCollectionService.CollectionResult result = 
+                        collectionService.collectOrders(user.getTenantId(), request.getStoreId(), from, to);
 
-            log.info("[SyncJob] Sync completed: fetched={}, created={}, updated={}, failed={}",
-                    result.getTotalFetched(), result.getCreated(), result.getUpdated(), result.getFailed());
+                // 이력 업데이트
+                historyService.updateHistoryWithResult(history, result);
 
-        } catch (Exception e) {
-            log.error("[SyncJob] Sync failed for store {}: {}", request.getStoreId(), e.getMessage(), e);
-            history = historyService.saveManualCollectionHistory(store, from, to, null, e.getMessage());
-            
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("SYNC_FAILED", "동기화 중 오류가 발생했습니다: " + e.getMessage()));
-        }
+                // 마지막 동기화 시간 업데이트
+                store.setLastSyncedAt(LocalDateTime.now());
+                storeRepository.save(store);
 
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.ok(SyncJobResponse.from(history, store)));
+                log.info("[SyncJob] Job {} completed: fetched={}, created={}, updated={}, failed={}",
+                        jobId, result.getTotalFetched(), result.getCreated(), result.getUpdated(), result.getFailed());
+
+            } catch (Exception e) {
+                log.error("[SyncJob] Job {} failed for store {}: {}", 
+                        jobId, request.getStoreId(), e.getMessage(), e);
+                historyService.updateHistoryWithError(history, e.getMessage());
+            }
+        }).start();
+
+        // 즉시 응답 반환 (작업 ID와 함께)
+        return ResponseEntity.accepted()
+                .body(ApiResponse.ok(Map.of(
+                        "jobId", jobId,
+                        "storeId", store.getStoreId(),
+                        "storeName", store.getStoreName(),
+                        "marketplace", store.getMarketplace().name(),
+                        "status", "IN_PROGRESS",
+                        "message", "동기화 작업이 시작되었습니다. 진행 상황은 GET /api/sync/jobs/" + jobId + " 에서 확인하세요.",
+                        "from", from.toString(),
+                        "to", to.toString()
+                )));
     }
 
     /**
@@ -192,11 +212,11 @@ public class SyncJobController {
         new Thread(() -> {
             for (Store store : activeStores) {
                 try {
-                    // 날짜 단위로 수집: 오늘 00:00:00 ~ 23:59:59까지
+                    // 날짜 단위로 수집: 30일치 (전체 동기화)
                     LocalDateTime to = LocalDate.now().atTime(LocalTime.MAX);
                     LocalDateTime from = store.getLastSyncedAt() != null 
                             ? store.getLastSyncedAt().minusMinutes(5) 
-                            : LocalDate.now().minusDays(6).atStartOfDay(); // 7일치 (오늘 포함)
+                            : LocalDate.now().minusDays(29).atStartOfDay(); // 30일치 (오늘 포함)
 
                     OrderCollectionService.CollectionResult result =
                             collectionService.collectOrders(user.getTenantId(), store.getStoreId(), from, to);

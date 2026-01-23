@@ -7,6 +7,7 @@ import com.sellsync.api.domain.posting.entity.PostingTemplateField;
 import com.sellsync.api.domain.posting.enums.ECountField;
 import com.sellsync.api.domain.posting.enums.PostingType;
 import com.sellsync.api.domain.posting.repository.PostingTemplateRepository;
+import com.sellsync.api.domain.store.entity.Store;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -262,6 +263,236 @@ public class TemplateBasedPostingBuilder {
         }
         
         return errors;
+    }
+    
+    /**
+     * BulkData만 생성 (SaleList 래퍼 없이)
+     * 
+     * OrderSettlementPostingService 등에서 여러 BulkData를 조합할 때 사용
+     * 
+     * @param order 주문 정보
+     * @param store 스토어 정보 (품목코드 조회용)
+     * @param erpCode ERP 코드
+     * @param postingType 전표 타입
+     * @param bulkDataType 전표 세부 타입 ("product_sales", "product_commission", "product_shipping", "product_shipping_commission")
+     * @return BulkData Map
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> buildBulkData(
+            Order order, 
+            Store store,
+            String erpCode, 
+            PostingType postingType,
+            String bulkDataType) {
+        
+        log.info("[BulkData 생성 시작] orderId={}, erpCode={}, postingType={}, bulkDataType={}", 
+            order.getOrderId(), erpCode, postingType, bulkDataType);
+        
+        // 1. 활성 템플릿 조회 (PRODUCT_SALES 템플릿 사용)
+        PostingTemplate template = templateRepository
+            .findActiveTemplate(order.getTenantId(), erpCode, PostingType.PRODUCT_SALES)
+            .orElseThrow(() -> new IllegalStateException(
+                String.format("활성 템플릿이 없습니다: tenant=%s, erp=%s, type=PRODUCT_SALES", 
+                    order.getTenantId(), erpCode)
+            ));
+        
+        // 2. 필드별로 값 추출 (기본 템플릿 기반)
+        Map<String, Object> postingData = new LinkedHashMap<>();
+        
+        for (PostingTemplateField field : template.getFields()) {
+            String fieldCode = field.getFieldCode();
+            Object value = null;
+            
+            // 매핑 규칙이 있으면 추출
+            if (field.getMapping() != null) {
+                value = fieldValueExtractor.extractValue(field.getMapping(), order);
+            }
+            
+            // 값이 없으면 기본값 사용
+            if (value == null && field.getDefaultValue() != null) {
+                value = field.getDefaultValue();
+            }
+            
+            // 날짜 타입이면 포맷팅
+            if (field.getEcountFieldCode().getFieldType() == ECountField.FieldType.DATE && value != null) {
+                value = fieldValueExtractor.formatDate(value, "yyyyMMdd");
+            }
+            
+            // 숫자 타입이면 반올림
+            if (field.getEcountFieldCode().getFieldType() == ECountField.FieldType.NUMBER && value != null) {
+                value = roundNumericValue(value, fieldCode);
+            }
+            
+            postingData.put(fieldCode, value);
+        }
+        
+        // 3. 필수 필드 자동 보충
+        supplementMissingFields(postingData, order);
+        
+        // 4. bulkDataType에 따라 품목코드 및 금액 오버라이드
+        applyBulkDataTypeOverrides(postingData, order, store, bulkDataType);
+        
+        log.info("[BulkData 생성 완료] orderId={}, bulkDataType={}, 필드 개수={}", 
+            order.getOrderId(), bulkDataType, postingData.size());
+        
+        return postingData;
+    }
+    
+    /**
+     * bulkDataType에 따라 품목코드 및 금액 오버라이드
+     * 
+     * @param postingData 기본 전표 데이터
+     * @param order 주문 정보
+     * @param store 스토어 정보
+     * @param bulkDataType 전표 세부 타입
+     */
+    private void applyBulkDataTypeOverrides(
+            Map<String, Object> postingData, 
+            Order order, 
+            Store store, 
+            String bulkDataType) {
+        
+        switch (bulkDataType) {
+            case "product_sales":
+                // 상품판매: 기본 템플릿 그대로 사용 (ProductMapping의 erpItemCode)
+                log.debug("[상품판매 전표] 기본 템플릿 사용");
+                break;
+                
+            case "product_commission":
+                // 상품수수료: commissionItemCode 사용, 금액은 음수
+                applyCommissionOverrides(postingData, order, store);
+                break;
+                
+            case "product_shipping":
+                // 배송비: shippingItemCode 사용, 금액은 배송비
+                applyShippingOverrides(postingData, order, store);
+                break;
+                
+            case "product_shipping_commission":
+                // 배송비수수료: shippingCommissionItemCode 사용, 금액은 음수
+                applyShippingCommissionOverrides(postingData, order, store);
+                break;
+                
+            default:
+                log.warn("[알 수 없는 bulkDataType] type={}", bulkDataType);
+        }
+    }
+    
+    /**
+     * 상품수수료 전표 오버라이드
+     */
+    private void applyCommissionOverrides(Map<String, Object> postingData, Order order, Store store) {
+        // 1. 품목코드 변경
+        if (store.getCommissionItemCode() == null || store.getCommissionItemCode().isEmpty()) {
+            throw new IllegalStateException(String.format(
+                "스토어에 상품수수료 품목코드가 설정되지 않았습니다. storeId=%s, storeName=%s",
+                store.getStoreId(), store.getStoreName()
+            ));
+        }
+        postingData.put("PROD_CD", store.getCommissionItemCode());
+//        postingData.put("PROD_DES", "상품판매수수료");
+        
+        // 2. 수량 1로 변경
+        postingData.put("QTY", 1);
+        
+        // 3. 수수료 금액 (음수) - Order의 commissionAmount 사용
+        Long commission = order.getCommissionAmount();
+        if (commission == null || commission == 0) {
+            log.warn("[상품수수료 금액 없음] orderId={}", order.getOrderId());
+            commission = 0L;
+        }
+        long negativeCommission = -Math.abs(commission);
+        
+        postingData.put("SUPPLY_AMT", negativeCommission);
+        postingData.put("VAT_AMT", 0L);  // 수수료는 VAT 제외
+        postingData.put("USER_PRICE_VAT", negativeCommission);
+        postingData.put("P_AMT1", negativeCommission);
+        
+        log.info("[상품수수료 오버라이드 적용] orderId={}, itemCode={}, amount={}", 
+            order.getOrderId(), store.getCommissionItemCode(), negativeCommission);
+    }
+    
+    /**
+     * 배송비 전표 오버라이드
+     */
+    private void applyShippingOverrides(Map<String, Object> postingData, Order order, Store store) {
+        // 1. 품목코드 변경
+        if (store.getShippingItemCode() == null || store.getShippingItemCode().isEmpty()) {
+            throw new IllegalStateException(String.format(
+                "스토어에 배송비 품목코드가 설정되지 않았습니다. storeId=%s, storeName=%s",
+                store.getStoreId(), store.getStoreName()
+            ));
+        }
+        postingData.put("PROD_CD", store.getShippingItemCode());
+//        postingData.put("PROD_DES", "배송비");
+        
+        // 2. 수량 1로 변경
+        postingData.put("QTY", 1);
+        
+        // 3. 배송비 금액
+        Long shippingAmount = order.getTotalShippingAmount();
+        if (shippingAmount == null || shippingAmount == 0) {
+            shippingAmount = order.getShippingFee();
+        }
+        if (shippingAmount == null) {
+            shippingAmount = 0L;
+        }
+        
+        // VAT 계산 (배송비도 VAT 포함 가정)
+        BigDecimal vatRate = new BigDecimal("0.1");
+        long supplyAmt = calculateSupplyAmount(shippingAmount, vatRate);
+        long vatAmt = shippingAmount - supplyAmt;
+        
+        postingData.put("SUPPLY_AMT", supplyAmt);
+        postingData.put("VAT_AMT", vatAmt);
+        postingData.put("USER_PRICE_VAT", shippingAmount);
+        postingData.put("P_AMT1", shippingAmount);
+        
+        log.info("[배송비 오버라이드 적용] orderId={}, itemCode={}, amount={}", 
+            order.getOrderId(), store.getShippingItemCode(), shippingAmount);
+    }
+    
+    /**
+     * 배송비수수료 전표 오버라이드
+     */
+    private void applyShippingCommissionOverrides(Map<String, Object> postingData, Order order, Store store) {
+        // 1. 품목코드 변경
+        if (store.getShippingCommissionItemCode() == null || store.getShippingCommissionItemCode().isEmpty()) {
+            throw new IllegalStateException(String.format(
+                "스토어에 배송비수수료 품목코드가 설정되지 않았습니다. storeId=%s, storeName=%s",
+                store.getStoreId(), store.getStoreName()
+            ));
+        }
+        postingData.put("PROD_CD", store.getShippingCommissionItemCode());
+//        postingData.put("PROD_DES", "배송비수수료");
+        
+        // 2. 수량 1로 변경
+        postingData.put("QTY", 1);
+        
+        // 3. 수수료 금액 (음수) - Order의 shippingCommissionAmount 사용
+        Long commission = order.getShippingCommissionAmount();
+        if (commission == null || commission == 0) {
+            log.warn("[배송비수수료 금액 없음] orderId={}", order.getOrderId());
+            commission = 0L;
+        }
+        long negativeCommission = -Math.abs(commission);
+        
+        postingData.put("SUPPLY_AMT", negativeCommission);
+        postingData.put("VAT_AMT", 0L);  // 수수료는 VAT 제외
+        postingData.put("USER_PRICE_VAT", negativeCommission);
+        postingData.put("P_AMT1", negativeCommission);
+        
+        log.info("[배송비수수료 오버라이드 적용] orderId={}, itemCode={}, amount={}", 
+            order.getOrderId(), store.getShippingCommissionItemCode(), negativeCommission);
+    }
+    
+    /**
+     * 공급가액 계산 (VAT 제외)
+     */
+    private long calculateSupplyAmount(long totalAmount, BigDecimal vatRate) {
+        BigDecimal total = BigDecimal.valueOf(totalAmount);
+        BigDecimal divisor = BigDecimal.ONE.add(vatRate);
+        return total.divide(divisor, 0, RoundingMode.HALF_UP).longValue();
     }
     
     /**

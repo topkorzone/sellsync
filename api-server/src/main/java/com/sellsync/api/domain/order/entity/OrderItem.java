@@ -12,11 +12,20 @@ import java.util.UUID;
  * 주문 상품 엔티티
  */
 @Entity
-@Table(name = "order_items")
+@Table(
+    name = "order_items",
+    uniqueConstraints = {
+        @UniqueConstraint(
+            name = "uk_order_item_marketplace",
+            columnNames = {"order_id", "marketplace_item_id"}
+        )
+    }
+)
 @Getter @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@org.hibernate.annotations.DynamicUpdate  // 변경된 컬럼만 UPDATE (성능 최적화)
 public class OrderItem {
 
     @Id
@@ -29,6 +38,16 @@ public class OrderItem {
 
     @Column(name = "line_no", nullable = false)
     private Integer lineNo;
+
+    /**
+     * 마켓플레이스에서 부여한 상품 라인 고유 ID
+     * - 스마트스토어: productOrderId
+     * - 쿠팡: orderItemId
+     * 
+     * 복합키 (order_id, marketplace_item_id)로 각 상품 라인을 고유 식별
+     */
+    @Column(name = "marketplace_item_id", nullable = false, length = 100)
+    private String marketplaceItemId;
 
     @Column(name = "marketplace_product_id", nullable = false, length = 100)
     private String marketplaceProductId;

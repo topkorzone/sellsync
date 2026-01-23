@@ -22,10 +22,11 @@ spring:
         use_sql_comments: false
         default_batch_fetch_size: 100
         jdbc:
-          batch_size: 10  # 배치 크기 줄임 (timeout 방지)
+          batch_size: 3  # 배치 크기 최소화 (timeout 방지)
           time_zone: Asia/Seoul  # ✅ 애플리케이션은 한국 시간, DB는 UTC로 Hibernate가 자동 변환
         order_inserts: true
         order_updates: true
+        batch_versioned_data: true  # 배치 업데이트 최적화
   
   flyway:
     enabled: true
@@ -34,6 +35,7 @@ spring:
     locations: classpath:db/migration
     validate-on-migrate: false  # 마이그레이션 파일 수정 시 체크섬 검증 비활성화
     out-of-order: false
+    ignore-migration-patterns: "*:missing"  # 삭제된 마이그레이션 무시 (V34)
   
   # OAuth2 설정
   security:
@@ -108,7 +110,8 @@ ecount:
 scheduling:
   order-collection:
     enabled: true
-    cron: "0 0/5 * * * *"  # 5분마다 (timeout 방지, 운영에서는 "0 0/30 * * * *" 사용)
+    cron: "0 0 0/1 * * *"  # 5분마다 (timeout 방지, 운영에서는 "0 0/30 * * * *" 사용)
+    # cron: "0 0/5 * * * *"  # 5분마다 (timeout 방지, 운영에서는 "0 0/30 * * * *" 사용)
 
 # 프론트엔드 URL (OAuth 콜백용)
 app:
@@ -118,10 +121,10 @@ app:
 logging:
   level:
     root: INFO
-    com.sellsync: DEBUG
-    com.sellsync.api.scheduler: INFO
-    org.springframework.web: INFO
-    org.hibernate.SQL: DEBUG
+    com.sellsync: INFO
+    com.sellsync.api.scheduler: DEBUG
+    org.springframework.web: DEBUG
+    org.hibernate.SQL: INFO
     org.hibernate.type.descriptor.sql.BasicBinder: TRACE
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

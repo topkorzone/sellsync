@@ -32,4 +32,12 @@ public interface ShipmentRepository extends JpaRepository<Shipment, UUID> {
     List<Shipment> findRetryable(@Param("tenantId") UUID tenantId, @Param("maxRetry") int maxRetry);
 
     long countByTenantIdAndMarketPushStatus(UUID tenantId, MarketPushStatus status);
+    
+    // 벌크 조회: 주문 ID 목록으로 송장 조회 (엑셀 업로드 중복 체크용)
+    @Query("SELECT s FROM Shipment s WHERE s.tenantId = :tenantId " +
+           "AND s.orderId IN :orderIds")
+    List<Shipment> findByTenantIdAndOrderIdIn(
+            @Param("tenantId") UUID tenantId,
+            @Param("orderIds") List<UUID> orderIds
+    );
 }

@@ -1,5 +1,6 @@
 package com.sellsync.api.domain.auth.dto;
 
+import com.sellsync.api.domain.tenant.enums.OnboardingStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -50,4 +51,9 @@ public class UserResponse {
      * 테넌트명
      */
     private String tenantName;
+    
+    /**
+     * 온보딩 상태
+     */
+    private OnboardingStatus onboardingStatus;
 }

@@ -64,8 +64,25 @@ public class SmartStoreCredentials {
             );
         }
         
-        log.debug("[SmartStore] Credentials parsed successfully. clientId: {}", 
-                 credentials.getClientId().substring(0, Math.min(8, credentials.getClientId().length())) + "...");
+        // ✅ 공백 제거 (DB에 공백이 포함되어 있을 수 있음)
+        credentials.setClientId(credentials.getClientId().trim());
+        credentials.setClientSecret(credentials.getClientSecret().trim());
+        
+        // ✅ 디버깅: clientSecret 길이 확인 (BCrypt salt는 정확히 29자 필요)
+        int clientSecretLength = credentials.getClientSecret().length();
+        log.info("[SmartStore] Credentials parsed - clientId: {}..., clientSecret length: {}, starts with: {}", 
+                 credentials.getClientId().substring(0, Math.min(8, credentials.getClientId().length())),
+                 clientSecretLength,
+                 credentials.getClientSecret().substring(0, Math.min(7, credentials.getClientSecret().length())));
+        
+        if (clientSecretLength != 29) {
+            log.warn("[SmartStore] ⚠️ CLIENT_SECRET 길이가 예상과 다릅니다! (현재: {} 자, 권장: 29자)", clientSecretLength);
+            if (clientSecretLength < 29) {
+                log.error("[SmartStore] ❌ CLIENT_SECRET이 너무 짧습니다!");
+                log.error("[SmartStore] BCrypt salt 형식이 아닌 것으로 보입니다. 전체 값: {}", credentials.getClientSecret());
+                log.error("[SmartStore] 해결: 네이버 커머스 개발자 센터에서 올바른 client_secret을 확인하세요.");
+            }
+        }
         
         return credentials;
     }

@@ -59,6 +59,9 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/health").permitAll()
                         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
                         
+                        // 테스트 API (개발 환경에서만 활성화됨 - @ConditionalOnProperty로 제어)
+                        .requestMatchers("/api/test/**").permitAll()
+                        
                         // 그 외 모든 요청은 인증 필요
                         .anyRequest().authenticated()
                 )

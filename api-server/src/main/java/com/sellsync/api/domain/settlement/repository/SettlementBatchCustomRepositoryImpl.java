@@ -62,11 +62,13 @@ public class SettlementBatchCustomRepositoryImpl implements SettlementBatchCusto
                     existingBatch.setMarketplacePayload(newBatch.getMarketplacePayload());
                     existingBatch.setUpdatedAt(newBatch.getUpdatedAt());
                     entityManager.merge(existingBatch);
+                    entityManager.flush();  // 각 배치마다 flush
                     
                     log.debug("[벌크 UPSERT] UPDATE - cycle={}", newBatch.getSettlementCycle());
                 } else {
                     // 3. 신규 배치 INSERT
                     entityManager.persist(newBatch);
+                    entityManager.flush();  // 각 배치마다 flush
                     
                     log.debug("[벌크 UPSERT] INSERT - cycle={}", newBatch.getSettlementCycle());
                 }
@@ -78,8 +80,6 @@ public class SettlementBatchCustomRepositoryImpl implements SettlementBatchCusto
                     newBatch.getSettlementCycle(), e.getMessage(), e);
             }
         }
-
-        entityManager.flush();
         
         log.info("[벌크 UPSERT 완료] total={}, processed={}", batches.size(), processedCount);
         
@@ -157,6 +157,11 @@ public class SettlementBatchCustomRepositoryImpl implements SettlementBatchCusto
 
         try {
             int affectedRows = entityManager.createNativeQuery(sql).executeUpdate();
+            
+            // ✅ Native Query 후 영속성 컨텍스트 클리어
+            // 이후 findBy* 조회 시 DB에서 새로 조회하도록 함
+            entityManager.flush();
+            entityManager.clear();
             
             log.info("[벌크 UPSERT Native 완료] total={}, affected={}", batches.size(), affectedRows);
             

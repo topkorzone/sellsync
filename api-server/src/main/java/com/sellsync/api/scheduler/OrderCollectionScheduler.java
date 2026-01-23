@@ -38,7 +38,7 @@ public class OrderCollectionScheduler {
 
     private static final int MAX_SYNC_DAYS = 7;            // 최대 동기화 범위 (일)
     private static final int FIRST_SYNC_DAYS = 7;          // 첫 동기화 범위 (일)
-    private static final long DELAY_BETWEEN_STORES_MS = 1000; // 스토어 간 딜레이
+    private static final long DELAY_BETWEEN_STORES_MS = 3000; // 스토어 간 딜레이 (락 충돌 방지)
     
     private volatile boolean isRunning = false; // 중복 실행 방지 플래그
 
@@ -53,7 +53,7 @@ public class OrderCollectionScheduler {
      * 30분 주기 주문 수집 스케줄러
      * cron: 매 30분 (0분, 30분)
      */
-    @Scheduled(cron = "${scheduling.order-collection.cron:0 0/30 * * * *}")
+    @Scheduled(cron = "${scheduling.order-collection.cron:0 0/5 * * * *}")
     public void collectOrdersScheduled() {
         // 중복 실행 방지
         if (isRunning) {

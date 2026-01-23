@@ -186,8 +186,16 @@ public class FieldDefinitionService {
                     .fieldName("마켓 주문번호")
                     .fieldType("TEXT")
                     .category("주문 기본 정보")
-                    .description("마켓플레이스의 주문번호")
+                    .description("마켓플레이스의 주문번호 (productOrderId)")
                     .exampleValue("ORD20260115-123456")
+                    .build(),
+                FieldDefinitionDto.builder()
+                    .fieldPath("order.bundleOrderId")
+                    .fieldName("묶음 주문번호")
+                    .fieldType("TEXT")
+                    .category("주문 기본 정보")
+                    .description("마켓플레이스의 묶음 주문번호 (네이버 스마트스토어 orderId)")
+                    .exampleValue("2026011950311091")
                     .build(),
                 FieldDefinitionDto.builder()
                     .fieldPath("order.orderedAt")

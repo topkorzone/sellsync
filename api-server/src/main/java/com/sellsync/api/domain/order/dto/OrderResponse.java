@@ -113,6 +113,8 @@ public class OrderResponse {
                 .settlementStatus(order.getSettlementStatus() != null ? order.getSettlementStatus().name() : "NOT_COLLECTED")
                 .settlementCollectedAt(order.getSettlementCollectedAt())
                 .settlementDate(order.getSettlementDate())
+                .productCommissionAmount(order.getCommissionAmount() != null ? order.getCommissionAmount() : 0L)
+                .shippingCommissionAmount(order.getShippingCommissionAmount() != null ? order.getShippingCommissionAmount() : 0L)
                 .items(order.getItems() != null ? order.getItems().stream()
                         .map(OrderItemResponse::from)
                         .collect(Collectors.toList()) : List.of())

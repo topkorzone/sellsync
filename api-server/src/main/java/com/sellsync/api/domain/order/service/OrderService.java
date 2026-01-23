@@ -9,7 +9,7 @@ import com.sellsync.api.domain.order.enums.SettlementCollectionStatus;
 import com.sellsync.api.domain.order.exception.OrderNotFoundException;
 import com.sellsync.api.domain.order.repository.OrderRepository;
 import com.sellsync.api.domain.settlement.entity.SettlementOrder;
-import com.sellsync.api.domain.settlement.enums.SettlementType;
+import com.sellsync.api.domain.settlement.entity.SettlementOrderItem;
 import com.sellsync.api.domain.settlement.repository.SettlementOrderRepository;
 import jakarta.persistence.criteria.JoinType;
 import lombok.RequiredArgsConstructor;
@@ -136,24 +136,49 @@ public class OrderService {
         if (order.getSettlementStatus() == SettlementCollectionStatus.COLLECTED 
             || order.getSettlementStatus() == SettlementCollectionStatus.POSTED) {
             
-            // 상품 수수료 조회 (SettlementType이 SALES가 아닌 것 중 찾기)
-            List<SettlementOrder> settlementOrders = settlementOrderRepository.findByOrderIdAndSettlementType(
-                orderId, SettlementType.SALES
-            );
+            // 정산 주문 조회
+            List<SettlementOrder> settlementOrders = settlementOrderRepository.findByOrderId(orderId);
+            log.debug("[OrderService.getById] orderId={}, settlementOrders.size={}", orderId, settlementOrders.size());
             
             if (!settlementOrders.isEmpty()) {
-                BigDecimal productCommission = settlementOrders.get(0).getCommissionAmount();
+                SettlementOrder settlementOrder = settlementOrders.get(0);
+                
+                // items에서 상품별 수수료 집계
+                BigDecimal productCommission = settlementOrder.getItems().stream()
+                    .filter(item -> !"DELIVERY".equals(item.getProductOrderType()))
+                    .map(SettlementOrderItem::calculateTotalCommission)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+                
+                BigDecimal shippingCommission = settlementOrder.getItems().stream()
+                    .filter(item -> "DELIVERY".equals(item.getProductOrderType()))
+                    .map(SettlementOrderItem::calculateTotalCommission)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+                
+                log.debug("[OrderService.getById] From SettlementOrder - productCommission={}, shippingCommission={}", 
+                    productCommission, shippingCommission);
+                
                 response.setProductCommissionAmount(productCommission.longValue());
-            }
-            
-            // 배송비 수수료 조회
-            List<SettlementOrder> shippingOrders = settlementOrderRepository.findByOrderIdAndSettlementType(
-                orderId, SettlementType.SHIPPING_FEE
-            );
-            
-            if (!shippingOrders.isEmpty()) {
-                BigDecimal shippingCommission = shippingOrders.get(0).getCommissionAmount();
-                response.setShippingCommissionAmount(shippingCommission.longValue());
+                
+                // ⚠️ FIX: SettlementOrder에 DELIVERY 타입이 없으면 Order 엔티티의 값을 fallback으로 사용
+                if (shippingCommission.compareTo(BigDecimal.ZERO) == 0 && order.getShippingCommissionAmount() != null && order.getShippingCommissionAmount() > 0) {
+                    log.debug("[OrderService.getById] DELIVERY 타입 없음, Order 엔티티 fallback 사용 - shippingCommissionAmount={}", order.getShippingCommissionAmount());
+                    response.setShippingCommissionAmount(order.getShippingCommissionAmount());
+                } else {
+                    response.setShippingCommissionAmount(shippingCommission.longValue());
+                }
+            } else {
+                // SettlementOrder가 없는 경우, Order 엔티티의 수수료 필드를 fallback으로 사용
+                // (정산 수집 시 bulkUpdateSettlementInfoByStoreId()에서 업데이트됨)
+                log.info("[OrderService.getById] No SettlementOrder found, using Order entity fields as fallback. orderId={}", orderId);
+                
+                Long productCommission = order.getCommissionAmount() != null ? order.getCommissionAmount() : 0L;
+                Long shippingCommission = order.getShippingCommissionAmount() != null ? order.getShippingCommissionAmount() : 0L;
+                
+                log.debug("[OrderService.getById] Fallback - productCommission={}, shippingCommission={}", 
+                    productCommission, shippingCommission);
+                
+                response.setProductCommissionAmount(productCommission);
+                response.setShippingCommissionAmount(shippingCommission);
             }
         }
         
@@ -340,15 +365,18 @@ public class OrderService {
     private Long calculateProductSettlementAmount(Order order) {
         try {
             List<SettlementOrder> settlements = settlementOrderRepository
-                    .findByOrderIdAndSettlementType(order.getOrderId(), SettlementType.SALES);
+                    .findByOrderId(order.getOrderId());
             
             if (settlements.isEmpty()) {
                 return 0L;
             }
             
             // 여러 개가 있을 경우 합산 (일반적으로는 1개만 있어야 함)
+            // 상품 타입(DELIVERY가 아닌 것)의 정산 금액만 합산
             BigDecimal total = settlements.stream()
-                    .map(SettlementOrder::getNetPayoutAmount)
+                    .flatMap(so -> so.getItems().stream())
+                    .filter(item -> !"DELIVERY".equals(item.getProductOrderType()))
+                    .map(SettlementOrderItem::getSettleExpectAmount)
                     .filter(java.util.Objects::nonNull)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             
@@ -444,8 +472,9 @@ public class OrderService {
                 
                 var searchPredicates = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
                 
-                // 주문번호 검색 (marketplaceOrderId)
+                // 주문번호 검색 (marketplaceOrderId, bundleOrderId)
                 searchPredicates.add(cb.like(cb.lower(root.get("marketplaceOrderId")), searchPattern));
+                searchPredicates.add(cb.like(cb.lower(root.get("bundleOrderId")), searchPattern));
                 
                 // 고객명 검색 (buyerName, receiverName)
                 searchPredicates.add(cb.like(cb.lower(root.get("buyerName")), searchPattern));

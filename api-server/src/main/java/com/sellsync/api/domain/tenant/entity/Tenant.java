@@ -1,10 +1,12 @@
 package com.sellsync.api.domain.tenant.entity;
 
 import com.sellsync.api.domain.common.BaseEntity;
+import com.sellsync.api.domain.tenant.enums.OnboardingStatus;
 import com.sellsync.api.domain.tenant.enums.TenantStatus;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
@@ -53,6 +55,32 @@ public class Tenant extends BaseEntity {
     private TenantStatus status = TenantStatus.ACTIVE;
     
     /**
+     * 온보딩 상태
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "onboarding_status", nullable = false, length = 20)
+    @Builder.Default
+    private OnboardingStatus onboardingStatus = OnboardingStatus.PENDING;
+    
+    /**
+     * 온보딩 완료 시각
+     */
+    @Column(name = "onboarding_completed_at")
+    private LocalDateTime onboardingCompletedAt;
+    
+    /**
+     * 전화번호
+     */
+    @Column(length = 20)
+    private String phone;
+    
+    /**
+     * 주소
+     */
+    @Column(length = 500)
+    private String address;
+    
+    /**
      * 테넌트 상태 변경
      */
     public void changeStatus(TenantStatus status) {
@@ -71,6 +99,39 @@ public class Tenant extends BaseEntity {
         }
         if (timezone != null && !timezone.isBlank()) {
             this.timezone = timezone;
+        }
+    }
+    
+    /**
+     * 온보딩 상태 변경
+     */
+    public void updateOnboardingStatus(OnboardingStatus status) {
+        this.onboardingStatus = status;
+        if (status == OnboardingStatus.COMPLETED) {
+            this.onboardingCompletedAt = LocalDateTime.now();
+        }
+    }
+    
+    /**
+     * 온보딩 완료 여부 확인
+     */
+    public boolean isOnboardingCompleted() {
+        return this.onboardingStatus == OnboardingStatus.COMPLETED 
+            || this.onboardingStatus == OnboardingStatus.SKIPPED;
+    }
+    
+    /**
+     * 사업자 정보 수정
+     */
+    public void updateBusinessInfo(String bizNo, String phone, String address) {
+        if (bizNo != null && !bizNo.isBlank()) {
+            this.bizNo = bizNo;
+        }
+        if (phone != null && !phone.isBlank()) {
+            this.phone = phone;
+        }
+        if (address != null && !address.isBlank()) {
+            this.address = address;
         }
     }
 }

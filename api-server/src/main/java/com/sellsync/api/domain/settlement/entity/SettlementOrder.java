@@ -1,7 +1,6 @@
 package com.sellsync.api.domain.settlement.entity;
 
 import com.sellsync.api.domain.order.enums.Marketplace;
-import com.sellsync.api.domain.settlement.enums.SettlementType;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.ColumnDefault;
@@ -11,6 +10,8 @@ import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -26,7 +27,7 @@ import java.util.UUID;
     uniqueConstraints = {
         @UniqueConstraint(
             name = "uk_settlement_orders_idempotency",
-            columnNames = {"tenant_id", "settlement_batch_id", "order_id", "settlement_type"}
+            columnNames = {"tenant_id", "settlement_batch_id", "order_id"}
         )
     },
     indexes = {
@@ -65,19 +66,18 @@ public class SettlementOrder {
     @Comment("주문 ID (FK)")
     private UUID orderId;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "settlement_type", nullable = false, length = 50)
-    @Comment("정산 유형")
-    private SettlementType settlementType;
-
     // ========== 비즈니스 필드 ==========
     @Enumerated(EnumType.STRING)
     @Column(name = "marketplace", nullable = false, length = 50)
     @Comment("오픈마켓 코드")
     private Marketplace marketplace;
 
+    @Column(name = "bundle_order_id", length = 255)
+    @Comment("번들 주문 ID (네이버: 묶음 배송 주문 ID)")
+    private String bundleOrderId;
+
     @Column(name = "marketplace_order_id", nullable = false, length = 255)
-    @Comment("마켓 주문 ID")
+    @Comment("마켓 개별 상품 주문 ID (네이버: 상품 주문 ID)")
     private String marketplaceOrderId;
 
     // ========== 금액 필드 (TRD v3 정의) ==========
@@ -145,6 +145,11 @@ public class SettlementOrder {
     @Comment("레코드 수정 시각")
     private LocalDateTime updatedAt;
 
+    // ========== 연관 관계 ==========
+    @OneToMany(mappedBy = "settlementOrder", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<SettlementOrderItem> items = new ArrayList<>();
+
     // ========== 비즈니스 메소드 ==========
 
     /**
@@ -186,6 +191,14 @@ public class SettlementOrder {
         this.shippingAdjustmentPostingId = shippingAdjustmentPostingId;
         this.receiptPostingId = receiptPostingId;
         this.updatedAt = LocalDateTime.now();
+    }
+
+    /**
+     * 정산 주문 상품 라인 추가
+     */
+    public void addItem(SettlementOrderItem item) {
+        this.items.add(item);
+        item.setSettlementOrder(this);
     }
 
     @PrePersist

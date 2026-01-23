@@ -1,5 +1,6 @@
 package com.sellsync.api.scheduler;
 
+import com.sellsync.api.domain.credential.service.CredentialService;
 import com.sellsync.api.domain.erp.service.ErpConfigService;
 import com.sellsync.api.domain.order.enums.Marketplace;
 import com.sellsync.api.domain.settlement.dto.SettlementBatchResponse;
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -42,6 +44,7 @@ public class SettlementScheduler {
     private final ErpConfigService erpConfigService;
     private final SettlementCollectionService settlementCollectionService;
     private final StoreRepository storeRepository;
+    private final CredentialService credentialService;
 
     /**
      * 정산 데이터 수집 (4시간마다)
@@ -58,23 +61,28 @@ public class SettlementScheduler {
      * 
      * TODO: 실제 운영에서는 tenant별로 분리 실행 필요
      */
-    @Scheduled(cron = "0 0 */4 * * *") // 4시간마다 (00, 04, 08, 12, 16, 20시)
-    // @Scheduled(cron = "0 */5 * * * *") // 5분마다 (테스트용)
+    // @Scheduled(cron = "0 0 */4 * * *") // 4시간마다 (00, 04, 08, 12, 16, 20시)
+//     @Scheduled(cron = "0 */5 * * * *") // 5분마다 (테스트용)
+    @Scheduled(cron = "0 0 1 * * *")
     public void collectDailySettlements() {
         log.info("[스케줄러] 일별 정산 수집 배치 시작");
         
         try {
-            // 1. 활성화된 SmartStore 스토어 목록 조회
+            // 1. 활성화된 모든 스토어 목록 조회 (정산 데이터 수집 가능한 마켓플레이스)
             List<Store> activeStores = storeRepository.findByIsActive(true).stream()
-                    .filter(store -> store.getMarketplace() == Marketplace.NAVER_SMARTSTORE)
+                    .filter(store -> store.getMarketplace() == Marketplace.NAVER_SMARTSTORE 
+                                  || store.getMarketplace() == Marketplace.COUPANG)
                     .toList();
             
             if (activeStores.isEmpty()) {
-                log.info("[스케줄러] 활성화된 SmartStore가 없습니다.");
+                log.info("[스케줄러] 활성화된 스토어가 없습니다.");
                 return;
             }
             
-            log.info("[스케줄러] 활성 SmartStore 스토어 수: {}", activeStores.size());
+            log.info("[스케줄러] 활성 스토어 수: {} (스마트스토어={}, 쿠팡={})", 
+                    activeStores.size(),
+                    activeStores.stream().filter(s -> s.getMarketplace() == Marketplace.NAVER_SMARTSTORE).count(),
+                    activeStores.stream().filter(s -> s.getMarketplace() == Marketplace.COUPANG).count());
             
             // 2. 최근 7일 기간 설정
             LocalDate endDate = LocalDate.now().minusDays(1);  // 어제까지
@@ -82,13 +90,38 @@ public class SettlementScheduler {
             
             int totalBatchCount = 0;
             int totalOrderCount = 0;
-            
+            // activeStores.remove(1);
             // 3. 각 스토어별로 정산 데이터 수집 및 처리
             for (Store store : activeStores) {
                 try {
-                    log.info("[스케줄러] 스토어 처리 시작: storeId={}, storeName={}", 
-                            store.getStoreId(), store.getStoreName());
+                    log.info("========================================");
+                    log.info("[스케줄러] 스토어 처리 시작");
+                    log.info("[스케줄러]   - 스토어 ID: {}", store.getStoreId());
+                    log.info("[스케줄러]   - 스토어명: {}", store.getStoreName());
+                    log.info("[스케줄러]   - 마켓플레이스: {}", store.getMarketplace());
+                    log.info("[스케줄러]   - 처리 기간: {} ~ {}", startDate, endDate);
+                    log.info("========================================");
                     
+                    // ✅ credentials 테이블에서 마켓플레이스 인증 정보 조회
+                    // 우선순위: credentials 테이블 → stores 테이블 (fallback, 스마트스토어만)
+                    Optional<String> credentialsOpt = credentialService.getMarketplaceCredentials(
+                            store.getTenantId(), 
+                            store.getStoreId(), 
+                            store.getMarketplace(),
+                            store.getCredentials()  // stores 테이블 credentials 컬럼 (fallback용)
+                    );
+                    
+                    String credentials;
+                    if (credentialsOpt.isPresent()) {
+                        credentials = credentialsOpt.get();
+                        log.info("[스케줄러]   - 인증 정보: 조회 성공 ✅");
+                    } else {
+                        log.error("[스케줄러] ❌ 인증 정보 없음 - 스킵");
+                        log.error("[스케줄러]   - credentials 테이블과 stores 테이블 모두에서 인증 정보를 찾을 수 없습니다.");
+                        log.error("[스케줄러]   - 해결: 관리자 화면에서 마켓 연동 정보를 입력해주세요.");
+                        continue;
+                    }
+//                    startDate = endDate.minusMonths(1);
                     // ✅ SettlementCollectionService 호출하여 전체 플로우 처리
                     SettlementCollectionResult result = settlementCollectionService.collectAndProcessSettlements(
                             store.getTenantId(),
@@ -96,30 +129,51 @@ public class SettlementScheduler {
                             store.getMarketplace(),
                             startDate,
                             endDate,
-                            store.getCredentials()
+                            credentials
                     );
                     
                     totalBatchCount += result.getCreatedBatches();
                     totalOrderCount += result.getCreatedSettlementOrders();
                     
-                    log.info("[스케줄러] 스토어 처리 완료: storeId={}, 정산요소={}, 매칭주문={}, 업데이트주문={}, 정산배치={}, 정산주문={}", 
-                            store.getStoreId(), 
-                            result.getTotalElements(),
-                            result.getMatchedOrders(),
-                            result.getUpdatedOrders(),
-                            result.getCreatedBatches(),
-                            result.getCreatedSettlementOrders());
+                    log.info("========================================");
+                    log.info("[스케줄러] ✅ 스토어 처리 완료");
+                    log.info("[스케줄러]   - 스토어 ID: {}", store.getStoreId());
+                    log.info("[스케줄러]   - API 수집: {} 건", result.getTotalElements());
+                    log.info("[스케줄러]   - 주문 매칭: {} 건", result.getMatchedOrders());
+                    log.info("[스케줄러]   - 주문 수수료 업데이트: {} 건", result.getUpdatedOrders());
+                    log.info("[스케줄러]   - 정산 배치 생성: {} 건", result.getCreatedBatches());
+                    log.info("[스케줄러]   - 정산 주문 저장: {} 건", result.getCreatedSettlementOrders());
+                    if (result.getTotalElements() > 0) {
+                        double saveRate = (result.getCreatedSettlementOrders() * 100.0) / result.getTotalElements();
+                        log.info("[스케줄러]   - 저장 비율: {}/{} ({}%)", 
+                                result.getCreatedSettlementOrders(), 
+                                result.getTotalElements(),
+                                String.format("%.1f", saveRate));
+                    }
+                    log.info("========================================");
                     
                 } catch (Exception e) {
-                    log.error("[스케줄러] 스토어 처리 실패: storeId={}, storeName={}, error={}", 
-                            store.getStoreId(), store.getStoreName(), e.getMessage(), e);
+                    log.error("========================================");
+                    log.error("[스케줄러] ❌ 스토어 처리 실패");
+                    log.error("[스케줄러]   - 스토어 ID: {}", store.getStoreId());
+                    log.error("[스케줄러]   - 스토어명: {}", store.getStoreName());
+                    log.error("[스케줄러]   - 에러: {}", e.getMessage(), e);
+                    log.error("========================================");
                 }
             }
             
-            log.info("[스케줄러] 일별 정산 수집 배치 완료: 총 정산배치={}, 총 정산주문={}", totalBatchCount, totalOrderCount);
+            log.info("========================================");
+            log.info("[스케줄러] ✅ 일별 정산 수집 배치 전체 완료");
+            log.info("[스케줄러]   - 처리 스토어 수: {}", activeStores.size());
+            log.info("[스케줄러]   - 총 정산 배치: {} 건", totalBatchCount);
+            log.info("[스케줄러]   - 총 정산 주문: {} 건", totalOrderCount);
+            log.info("========================================");
             
         } catch (Exception e) {
-            log.error("[스케줄러] 일별 정산 수집 배치 실패: {}", e.getMessage(), e);
+            log.error("========================================");
+            log.error("[스케줄러] ❌ 일별 정산 수집 배치 실패");
+            log.error("[스케줄러]   - 에러: {}", e.getMessage(), e);
+            log.error("========================================");
         }
     }
 

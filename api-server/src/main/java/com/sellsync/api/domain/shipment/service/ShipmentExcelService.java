@@ -23,6 +23,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -51,6 +52,15 @@ public class ShipmentExcelService {
         private String orderNo;
         private String errorMessage;
     }
+    
+    @Data
+    @Builder
+    private static class ShipmentData {
+        private Order order;
+        private String carrierCode;
+        private String carrierName;
+        private String trackingNo;
+    }
 
     @Transactional
     public UploadResult processExcel(UUID tenantId, MultipartFile file, UUID userId) {
@@ -77,6 +87,8 @@ public class ShipmentExcelService {
 
             validateHeaders(headerMap);
 
+            // 1. 모든 행의 송장 데이터 빌드
+            List<ShipmentData> shipmentDataList = new ArrayList<>();
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
                 if (row == null || isEmptyRow(row)) continue;
@@ -84,8 +96,8 @@ public class ShipmentExcelService {
                 totalRows++;
 
                 try {
-                    processRow(tenantId, row, headerMap);
-                    successCount++;
+                    ShipmentData data = buildShipmentData(tenantId, row, headerMap);
+                    shipmentDataList.add(data);
                 } catch (Exception e) {
                     String orderNo = getCellValue(row, headerMap.get("주문번호"));
                     errors.add(RowError.builder()
@@ -93,7 +105,37 @@ public class ShipmentExcelService {
                             .orderNo(orderNo)
                             .errorMessage(e.getMessage())
                             .build());
-                    log.warn("[ShipmentExcel] Row {} failed: {}", i + 1, e.getMessage());
+                    log.warn("[ShipmentExcel] Row {} validation failed: {}", i + 1, e.getMessage());
+                }
+            }
+            
+            // 2. 기존 송장 중복 체크 (벌크 조회)
+            List<Shipment> shipmentsToSave = filterDuplicates(tenantId, shipmentDataList);
+            
+            // 3. 벌크 저장
+            if (!shipmentsToSave.isEmpty()) {
+                try {
+                    shipmentRepository.saveAll(shipmentsToSave);
+                    successCount = shipmentsToSave.size();
+                    log.info("[ShipmentExcel] Bulk saved {} shipments", successCount);
+                } catch (Exception e) {
+                    log.error("[ShipmentExcel] Bulk save failed, falling back to individual saves", e);
+                    // 폴백: 개별 저장 시도
+                    for (Shipment shipment : shipmentsToSave) {
+                        try {
+                            shipmentRepository.save(shipment);
+                            successCount++;
+                        } catch (Exception ex) {
+                            String orderNo = shipment.getOrderId() != null ? 
+                                    shipment.getOrderId().toString() : "unknown";
+                            errors.add(RowError.builder()
+                                    .orderNo(orderNo)
+                                    .errorMessage(ex.getMessage())
+                                    .build());
+                            log.warn("[ShipmentExcel] Individual save failed for tracking {}: {}", 
+                                    shipment.getTrackingNo(), ex.getMessage());
+                        }
+                    }
                 }
             }
 
@@ -163,6 +205,94 @@ public class ShipmentExcelService {
         }
     }
 
+    /**
+     * 송장 데이터 빌드 (엔티티 생성 전 검증 및 데이터 준비)
+     */
+    private ShipmentData buildShipmentData(UUID tenantId, Row row, Map<String, Integer> headerMap) {
+        String orderNo = getCellValue(row, headerMap.get("주문번호"));
+        String carrier = getCellValue(row, headerMap.get("택배사"));
+        String trackingNo = getCellValue(row, headerMap.get("송장번호"));
+
+        if (orderNo == null || orderNo.isBlank()) {
+            throw new IllegalArgumentException("주문번호가 없습니다");
+        }
+        if (trackingNo == null || trackingNo.isBlank()) {
+            throw new IllegalArgumentException("송장번호가 없습니다");
+        }
+
+        // 택배사 코드 변환
+        CarrierCode carrierCode = CarrierCode.resolve(carrier);
+
+        // 주문 찾기 (마켓 주문번호 또는 내부 ID)
+        Order order = findOrder(tenantId, orderNo);
+
+        return ShipmentData.builder()
+                .order(order)
+                .carrierCode(carrierCode.getCode())
+                .carrierName(carrierCode.getName())
+                .trackingNo(trackingNo.replaceAll("[^0-9]", ""))  // 숫자만 추출
+                .build();
+    }
+    
+    /**
+     * 중복 송장 필터링 (벌크 조회로 성능 최적화)
+     */
+    private List<Shipment> filterDuplicates(UUID tenantId, List<ShipmentData> shipmentDataList) {
+        if (shipmentDataList.isEmpty()) {
+            return new ArrayList<>();
+        }
+        
+        // 1. 기존 송장 벌크 조회 (orderId + carrierCode + trackingNo 조합)
+        List<UUID> orderIds = shipmentDataList.stream()
+                .map(data -> data.getOrder().getOrderId())
+                .distinct()
+                .toList();
+        
+        List<Shipment> existingShipments = shipmentRepository
+                .findByTenantIdAndOrderIdIn(tenantId, orderIds);
+        
+        // 2. 중복 체크를 위한 키 생성 (orderId:carrierCode:trackingNo)
+        Set<String> existingKeys = existingShipments.stream()
+                .map(s -> String.format("%s:%s:%s", 
+                        s.getOrderId(), s.getCarrierCode(), s.getTrackingNo()))
+                .collect(Collectors.toSet());
+        
+        log.debug("[ShipmentExcel] Found {} existing shipments out of {} candidates", 
+                existingKeys.size(), shipmentDataList.size());
+        
+        // 3. 신규 송장만 필터링
+        List<Shipment> shipmentsToSave = new ArrayList<>();
+        for (ShipmentData data : shipmentDataList) {
+            String key = String.format("%s:%s:%s", 
+                    data.getOrder().getOrderId(), data.getCarrierCode(), data.getTrackingNo());
+            
+            if (!existingKeys.contains(key)) {
+                Shipment shipment = Shipment.builder()
+                        .tenantId(tenantId)
+                        .storeId(data.getOrder().getStoreId())
+                        .orderId(data.getOrder().getOrderId())
+                        .carrierCode(data.getCarrierCode())
+                        .carrierName(data.getCarrierName())
+                        .trackingNo(data.getTrackingNo())
+                        .shipmentStatus(ShipmentStatus.INVOICE_CREATED)
+                        .marketPushStatus(MarketPushStatus.PENDING)
+                        .build();
+                
+                shipmentsToSave.add(shipment);
+            } else {
+                log.debug("[ShipmentExcel] Skipping duplicate shipment: {}", key);
+            }
+        }
+        
+        return shipmentsToSave;
+    }
+    
+    /**
+     * 개별 행 처리 (레거시 메서드, 하위 호환성 유지)
+     * 
+     * @deprecated processExcel()에서 벌크 처리를 사용합니다. 개별 호출이 필요한 경우에만 사용하세요.
+     */
+    @Deprecated
     private void processRow(UUID tenantId, Row row, Map<String, Integer> headerMap) {
         String orderNo = getCellValue(row, headerMap.get("주문번호"));
         String carrier = getCellValue(row, headerMap.get("택배사"));

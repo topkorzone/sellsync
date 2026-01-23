@@ -129,10 +129,14 @@ public class AuthService {
                 .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
         
         String tenantName = null;
+        com.sellsync.api.domain.tenant.enums.OnboardingStatus onboardingStatus = null;
+        
         if (user.getTenantId() != null) {
-            tenantName = tenantRepository.findById(user.getTenantId())
-                    .map(Tenant::getName)
-                    .orElse(null);
+            Tenant tenant = tenantRepository.findById(user.getTenantId()).orElse(null);
+            if (tenant != null) {
+                tenantName = tenant.getName();
+                onboardingStatus = tenant.getOnboardingStatus();
+            }
         }
         
         return UserResponse.builder()
@@ -143,6 +147,7 @@ public class AuthService {
                 .role(user.getRole().name())
                 .status(user.getStatus().name())
                 .tenantName(tenantName)
+                .onboardingStatus(onboardingStatus)
                 .build();
     }
     

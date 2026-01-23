@@ -17,7 +17,7 @@ import com.sellsync.api.domain.store.repository.StoreRepository;
 import com.sellsync.api.domain.mapping.service.ProductMappingService;
 import com.sellsync.api.domain.mapping.dto.ProductMappingResponse;
 import com.sellsync.api.domain.settlement.entity.SettlementOrder;
-import com.sellsync.api.domain.settlement.enums.SettlementType;
+import com.sellsync.api.domain.settlement.entity.SettlementOrderItem;
 import com.sellsync.api.domain.settlement.repository.SettlementOrderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,7 +25,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
@@ -53,69 +52,89 @@ public class OrderSettlementPostingService {
     private final StoreRepository storeRepository;
     private final ProductMappingService productMappingService;
     private final SettlementOrderRepository settlementOrderRepository;
+    private final TemplateBasedPostingBuilder templateBasedPostingBuilder;
 
     private static final DateTimeFormatter IO_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
 
     /**
      * 정산 수집된 주문에 대한 전표 생성 (한 셋트로 통합)
      * 
-     * @param orderId 주문 ID
+     * 네이버 스마트스토어의 경우 하나의 bundleOrderId에 여러 개의 productOrderId가 있을 수 있으며,
+     * 이들을 하나의 전표로 묶어서 생성합니다.
+     * 
+     * @param bundleOrderId 번들 주문 ID (네이버 스마트스토어의 경우 묶음 주문번호)
      * @param erpCode ERP 코드 (ECOUNT 등)
      * @return 생성된 전표 (1개만 생성됨)
      * @throws OrderNotFoundException 주문을 찾을 수 없는 경우
      * @throws IllegalStateException settlement_status가 COLLECTED가 아닌 경우
      */
     @Transactional
-    public PostingResponse createPostingsForSettledOrder(UUID orderId, String erpCode) {
-        log.info("[정산 전표 생성 시작] orderId={}, erpCode={}", orderId, erpCode);
+    public PostingResponse createPostingsForSettledOrder(String bundleOrderId, String erpCode) {
+        log.info("[정산 전표 생성 시작] bundleOrderId={}, erpCode={}", bundleOrderId, erpCode);
 
-        // 1. 주문 조회
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new OrderNotFoundException(orderId));
+        // 1. 주문 조회 (bundleOrderId로 조회 - 여러 개 주문이 나올 수 있음)
+        List<Order> orders = orderRepository.findByBundleOrderId(bundleOrderId);
+        
+        if (orders.isEmpty()) {
+            throw new OrderNotFoundException(UUID.randomUUID()); // bundleOrderId는 String이라 임시로 UUID 생성
+        }
+        
+        log.info("[번들 주문 조회 완료] bundleOrderId={}, 주문 개수={}", bundleOrderId, orders.size());
 
-        // 2. settlement_status = COLLECTED 확인
-        if (order.getSettlementStatus() != SettlementCollectionStatus.COLLECTED) {
+        // 2. settlement_status = COLLECTED 확인 (모든 주문이 COLLECTED여야 함)
+        List<Order> notCollectedOrders = orders.stream()
+                .filter(o -> o.getSettlementStatus() != SettlementCollectionStatus.COLLECTED)
+                .toList();
+        
+        if (!notCollectedOrders.isEmpty()) {
             String errorMsg = String.format(
-                "주문의 정산 상태가 COLLECTED가 아닙니다. orderId=%s, settlementStatus=%s",
-                orderId, order.getSettlementStatus()
+                "일부 주문의 정산 상태가 COLLECTED가 아닙니다. bundleOrderId=%s, notCollected count=%d",
+                bundleOrderId, notCollectedOrders.size()
             );
             log.error(errorMsg);
             throw new IllegalStateException(errorMsg);
         }
 
-        // 3. 상품 매핑 완료 확인 (필수)
-        List<String> unmappedItems = checkProductMappings(order);
+        // 3. 상품 매핑 완료 확인 (모든 주문의 모든 상품이 매핑되어야 함)
+        List<String> unmappedItems = new ArrayList<>();
+        for (Order order : orders) {
+            unmappedItems.addAll(checkProductMappings(order));
+        }
+        
         if (!unmappedItems.isEmpty()) {
             String errorMsg = String.format(
-                "상품 매핑이 완료되지 않은 항목이 있습니다. 매핑 관리 화면에서 먼저 매핑을 완료해주세요. orderId=%s, unmapped items=%s",
-                orderId, unmappedItems
+                "상품 매핑이 완료되지 않은 항목이 있습니다. 매핑 관리 화면에서 먼저 매핑을 완료해주세요. bundleOrderId=%s, unmapped items=%s",
+                bundleOrderId, unmappedItems
             );
-            log.error("[전표 생성 차단 - 상품매핑 미완료] orderId={}, unmappedItems={}", orderId, unmappedItems);
+            log.error("[전표 생성 차단 - 상품매핑 미완료] bundleOrderId={}, unmappedItems={}", bundleOrderId, unmappedItems);
             throw new IllegalStateException(errorMsg);
         }
 
-        // 4. ERP 설정 조회 (수수료 품목 코드 확인용)
-        ErpConfig erpConfig = erpConfigRepository.findByTenantIdAndErpCode(order.getTenantId(), erpCode)
+        // 4. 대표 주문 정보 (첫 번째 주문 기준)
+        Order firstOrder = orders.get(0);
+
+        // 5. ERP 설정 조회 (수수료 품목 코드 확인용)
+        ErpConfig erpConfig = erpConfigRepository.findByTenantIdAndErpCode(firstOrder.getTenantId(), erpCode)
                 .orElseThrow(() -> new IllegalStateException(
-                    String.format("ERP 설정이 없습니다. tenantId=%s, erpCode=%s", order.getTenantId(), erpCode)
+                    String.format("ERP 설정이 없습니다. tenantId=%s, erpCode=%s", firstOrder.getTenantId(), erpCode)
                 ));
 
-        // 5. Store 조회 (거래처 코드 확인용)
-        Store store = storeRepository.findById(order.getStoreId())
+        // 6. Store 조회 (거래처 코드 확인용)
+        Store store = storeRepository.findById(firstOrder.getStoreId())
                 .orElseThrow(() -> new IllegalStateException(
-                    String.format("스토어를 찾을 수 없습니다. storeId=%s", order.getStoreId())
+                    String.format("스토어를 찾을 수 없습니다. storeId=%s", firstOrder.getStoreId())
                 ));
 
-        // 6. 통합 전표 Payload 생성 (상품판매 + 배송비 + 수수료)
-        String payload = buildIntegratedPostingPayload(order, erpConfig, store);
+        // 7. 통합 전표 Payload 생성 (여러 주문의 상품판매 + 배송비 + 수수료)
+        String payload = buildIntegratedPostingPayload(orders, erpConfig, store);
 
-        // 7. 전표 생성 (PostingType은 PRODUCT_SALES로 대표)
+        // 8. 전표 생성 (PostingType은 PRODUCT_SALES로 대표)
         CreatePostingRequest request = CreatePostingRequest.builder()
-                .tenantId(order.getTenantId())
+                .tenantId(firstOrder.getTenantId())
                 .erpCode(erpCode)
-                .orderId(order.getOrderId())
-                .marketplace(order.getMarketplace())
-                .marketplaceOrderId(order.getMarketplaceOrderId())
+                .orderId(firstOrder.getOrderId())
+                .marketplace(firstOrder.getMarketplace())
+                .marketplaceOrderId(bundleOrderId) // bundleOrderId를 대표 주문번호로 사용
                 .postingType(PostingType.PRODUCT_SALES) // 통합 전표의 대표 타입
                 .requestPayload(payload)
                 .build();
@@ -123,13 +142,15 @@ public class OrderSettlementPostingService {
         PostingResponse posting = postingService.createOrGet(request);
         log.info("[통합 전표 생성] postingId={}", posting.getPostingId());
 
-        // 8. 정산 전표 생성 완료 마킹
-        order.markSettlementPosted();
-        orderRepository.save(order);
-        log.info("[정산 전표 생성 완료 마킹] orderId={}, settlementStatus={}", 
-            orderId, order.getSettlementStatus());
+        // 9. 정산 전표 생성 완료 마킹 (모든 주문에 대해)
+        for (Order order : orders) {
+            order.markSettlementPosted();
+        }
+        orderRepository.saveAll(orders);
+        log.info("[정산 전표 생성 완료 마킹] bundleOrderId={}, 주문 개수={}", 
+            bundleOrderId, orders.size());
 
-        log.info("[정산 전표 생성 완료] orderId={}, postingId={}", orderId, posting.getPostingId());
+        log.info("[정산 전표 생성 완료] bundleOrderId={}, postingId={}", bundleOrderId, posting.getPostingId());
 
         return posting;
     }
@@ -137,103 +158,127 @@ public class OrderSettlementPostingService {
     // ========== Private Helper Methods ==========
 
     /**
-     * 통합 전표 Payload 생성
+     * 통합 전표 Payload 생성 (여러 주문을 하나의 전표로 통합)
      * 
      * SaleList 구조:
-     * - BulkDatas[0]: 상품판매 (PRODUCT_SALES)
-     * - BulkDatas[1]: 배송비 (SHIPPING_FEE) - 있으면
-     * - BulkDatas[2]: 상품판매 수수료 (COMMISSION_EXPENSE)
-     * - BulkDatas[3]: 배송비 수수료 (SHIPPING_COMMISSION) - 있으면
+     * - [주문별] 상품판매 전표 (N개)
+     * - [주문별] 상품수수료 전표 (N개)
+     * - [번들 1건] 배송비 전표 (1개) - 대표 주문 기준
+     * - [번들 1건] 배송비수수료 전표 (1개) - 대표 주문 기준
      */
-    private String buildIntegratedPostingPayload(Order order, ErpConfig erpConfig, Store store) {
-        log.info("[통합 Payload 생성 시작] orderId={}", order.getOrderId());
+    private String buildIntegratedPostingPayload(List<Order> orders, ErpConfig erpConfig, Store store) {
+        log.info("[통합 Payload 생성 시작] bundleOrderId={}, 주문 개수={}", 
+            orders.get(0).getBundleOrderId(), orders.size());
 
+        Order firstOrder = orders.get(0);  // 대표 주문 (배송비/배송수수료 기준)
         List<Map<String, Object>> saleList = new ArrayList<>();
-        String ioDate = order.getPaidAt().format(IO_DATE_FORMATTER);
+        String ioDate = firstOrder.getPaidAt().format(IO_DATE_FORMATTER);
         
-        // UPLOAD_SER_NO를 정수형으로 생성 (당일 기준 시퀀스)
-        Integer uploadSerNo = generateDailySequence(order);
-        
-        // 상품 전표의 창고코드를 모든 전표에서 공통으로 사용
-        String commonWhCd = getProductWarehouseCode(order, erpConfig);
-        log.info("[창고코드 통일] orderId={}, commonWhCd={}", order.getOrderId(), commonWhCd);
+        Integer uploadSerNo = generateDailySequence(firstOrder);
+        String commonWhCd = getProductWarehouseCode(firstOrder, erpConfig);
 
         int index = 0;
 
-        // 1. 상품판매 전표 (필수)
-        if (order.getTotalProductAmount() != null && order.getTotalProductAmount() > 0) {
-            Map<String, Object> productSales = createProductSalesBulkData(
-                order, ioDate, uploadSerNo, ++index, erpConfig, store, commonWhCd
-            );
-            saleList.add(Collections.singletonMap("BulkDatas", productSales));
-            log.info("[1단계 완료 - 상품판매 전표 추가] orderId={}, index={}, amount={}, 현재 SaleList 크기={}", 
-                order.getOrderId(), index, order.getTotalProductAmount(), saleList.size());
+        // ========== 1. 각 주문별 상품판매 전표 ==========
+        for (Order order : orders) {
+            if (order.getTotalProductAmount() != null && order.getTotalProductAmount() > 0) {
+                Map<String, Object> productSalesData = templateBasedPostingBuilder.buildBulkData(
+                    order, store, erpConfig.getErpCode(), PostingType.PRODUCT_SALES, "product_sales"
+                );
+                productSalesData.put("UPLOAD_SER_NO", uploadSerNo);
+                productSalesData.put("IO_DATE", ioDate);
+                productSalesData.put("WH_CD", commonWhCd);
+                
+                saleList.add(Collections.singletonMap("BulkDatas", productSalesData));
+                log.info("[상품판매 전표 추가] orderId={}, index={}, amount={}", 
+                    order.getOrderId(), ++index, order.getTotalProductAmount());
+            }
         }
 
-        // 2. 배송비 전표 (있는 경우만)
-        log.debug("[배송비 확인] totalShippingAmount={}, shippingFee={}", 
-            order.getTotalShippingAmount(), order.getShippingFee());
-        
-        // totalShippingAmount 또는 shippingFee가 있으면 배송비 전표 생성
-        Long shippingAmount = order.getTotalShippingAmount();
+        // ========== 2. 각 주문별 상품수수료 전표 ==========
+        for (Order order : orders) {
+            Long productCommission = getProductCommissionFromSettlement(order);
+            
+            if (productCommission != null && productCommission > 0 
+                    && store.getCommissionItemCode() != null 
+                    && !store.getCommissionItemCode().isEmpty()) {
+                
+                order.setCommissionAmount(productCommission);
+                
+                Map<String, Object> commissionData = templateBasedPostingBuilder.buildBulkData(
+                    order, store, erpConfig.getErpCode(), PostingType.PRODUCT_SALES, "product_commission"
+                );
+                commissionData.put("UPLOAD_SER_NO", uploadSerNo);
+                commissionData.put("IO_DATE", ioDate);
+                commissionData.put("WH_CD", commonWhCd);
+                
+                saleList.add(Collections.singletonMap("BulkDatas", commissionData));
+                log.info("[상품수수료 전표 추가] orderId={}, index={}, amount={}", 
+                    order.getOrderId(), ++index, productCommission);
+            }
+        }
+
+        // ========== 3. 배송비 전표 (번들 당 1건 - 대표 주문 기준) ==========
+        Long shippingAmount = firstOrder.getTotalShippingAmount();
         if (shippingAmount == null || shippingAmount == 0) {
-            shippingAmount = order.getShippingFee();
+            shippingAmount = firstOrder.getShippingFee();
         }
         
-        if (shippingAmount != null && shippingAmount > 0) {
-            Map<String, Object> shippingFee = createShippingFeeBulkData(
-                order, ioDate, uploadSerNo, ++index, erpConfig, store, shippingAmount, commonWhCd
+        if (shippingAmount != null && shippingAmount > 0 
+                && store.getShippingItemCode() != null 
+                && !store.getShippingItemCode().isEmpty()) {
+            
+            Map<String, Object> shippingData = templateBasedPostingBuilder.buildBulkData(
+                firstOrder, store, erpConfig.getErpCode(), PostingType.PRODUCT_SALES, "product_shipping"
             );
-            saleList.add(Collections.singletonMap("BulkDatas", shippingFee));
-            log.info("[2단계 완료 - 배송비 전표 추가] orderId={}, index={}, amount={}, 현재 SaleList 크기={}", 
-                order.getOrderId(), index, shippingAmount, saleList.size());
-        } else {
-            log.info("[2단계 생략 - 배송비 없음] orderId={}, totalShippingAmount={}, shippingFee={}", 
-                order.getOrderId(), order.getTotalShippingAmount(), order.getShippingFee());
+            shippingData.put("UPLOAD_SER_NO", uploadSerNo);
+            shippingData.put("IO_DATE", ioDate);
+            shippingData.put("WH_CD", commonWhCd);
+            
+            saleList.add(Collections.singletonMap("BulkDatas", shippingData));
+            log.info("[배송비 전표 추가 - 번들 1건] bundleOrderId={}, index={}, amount={}", 
+                firstOrder.getBundleOrderId(), ++index, shippingAmount);
         }
 
-        // 3. 상품판매 수수료 전표 (필수)
-        // 정산 테이블에서 PRODUCT_SALES 타입의 수수료 조회
-        Long productCommission = getProductCommissionFromSettlement(order);
+        // ========== 4. 배송비수수료 전표 (번들 당 1건 - 대표 주문 기준) ==========
+        // Order.shippingCommissionAmount 사용, 0이면 번들 내 다른 주문에서 조회
+        Long shippingCommission = getShippingCommissionFromOrderOrBundle(firstOrder);
         
-        if (productCommission != null && productCommission > 0) {
-            Map<String, Object> commission = createCommissionBulkData(
-                order, ioDate, uploadSerNo, ++index, erpConfig, store, productCommission, commonWhCd
-            );
-            saleList.add(Collections.singletonMap("BulkDatas", commission));
-            log.info("[3단계 완료 - 상품판매 수수료 전표 추가] orderId={}, index={}, amount={}, 현재 SaleList 크기={}", 
-                order.getOrderId(), index, productCommission, saleList.size());
-        } else {
-            log.warn("[3단계 생략 - 상품 수수료 없음] orderId={}, productCommission={}", 
-                order.getOrderId(), productCommission);
-        }
-
-        // 4. 배송비 수수료 전표 (배송비가 있고 배송비 수수료가 있으면)
-        // 정산 테이블에서 SHIPPING_FEE 타입의 수수료 조회
-        Long shippingCommission = getShippingFeeCommissionFromSettlement(order);
+        log.info("[배송비수수료 전표 생성 조건 체크] bundleOrderId={}, shippingAmount={}, shippingCommission={}, " +
+                "shippingCommissionItemCode={}", 
+            firstOrder.getBundleOrderId(), 
+            shippingAmount, 
+            shippingCommission,
+            store.getShippingCommissionItemCode());
         
-        log.info("[배송비 수수료 확인] orderId={}, shippingAmount={}, shippingCommission={}, itemCode={}", 
-            order.getOrderId(), shippingAmount, shippingCommission, store.getShippingCommissionItemCode());
-        
-        // 배송비 수수료 생성 조건 검증 (모든 조건이 만족되어야 함)
-        boolean canCreateShippingCommission = shippingAmount != null && shippingAmount > 0 
+        if (shippingAmount != null && shippingAmount > 0 
                 && shippingCommission != null && shippingCommission > 0
                 && store.getShippingCommissionItemCode() != null 
-                && !store.getShippingCommissionItemCode().isEmpty();
-        
-        if (canCreateShippingCommission) {
-            Map<String, Object> shippingCommissionData = createShippingCommissionBulkData(
-                order, ioDate, uploadSerNo, ++index, erpConfig, store, shippingCommission, commonWhCd
+                && !store.getShippingCommissionItemCode().isEmpty()) {
+            
+            firstOrder.setShippingCommissionAmount(shippingCommission);
+            
+            Map<String, Object> shippingCommissionData = templateBasedPostingBuilder.buildBulkData(
+                firstOrder, store, erpConfig.getErpCode(), PostingType.PRODUCT_SALES, "product_shipping_commission"
             );
+            shippingCommissionData.put("UPLOAD_SER_NO", uploadSerNo);
+            shippingCommissionData.put("IO_DATE", ioDate);
+            shippingCommissionData.put("WH_CD", commonWhCd);
+            
             saleList.add(Collections.singletonMap("BulkDatas", shippingCommissionData));
-            log.info("[4단계 완료 - 배송비 수수료 전표 추가] orderId={}, index={}, amount={}, 현재 SaleList 크기={}", 
-                order.getOrderId(), index, shippingCommission, saleList.size());
+            log.info("[배송비수수료 전표 추가 - 번들 1건] bundleOrderId={}, index={}, amount={}", 
+                firstOrder.getBundleOrderId(), ++index, shippingCommission);
         } else {
-            log.info("[4단계 생략 - 배송비 수수료 조건 미충족] orderId={}, shippingAmount={}, shippingCommission={}, commissionItemCode={}", 
-                order.getOrderId(), shippingAmount, shippingCommission, store.getShippingCommissionItemCode());
+            log.warn("[배송비수수료 전표 생성 스킵] bundleOrderId={}, 조건 불충족 - " +
+                    "shippingAmount={}, shippingCommission={}, shippingCommissionItemCode={}", 
+                firstOrder.getBundleOrderId(),
+                shippingAmount,
+                shippingCommission,
+                store.getShippingCommissionItemCode());
         }
 
-        log.info("[통합 Payload 생성 최종] orderId={}, 총 BulkDatas 개수={}", order.getOrderId(), saleList.size());
+        log.info("[통합 Payload 생성 최종] bundleOrderId={}, 주문 개수={}, 총 BulkDatas 개수={}", 
+            firstOrder.getBundleOrderId(), orders.size(), saleList.size());
 
         // JSON 직렬화
         try {
@@ -241,385 +286,157 @@ public class OrderSettlementPostingService {
             payload.put("SaleList", saleList);
             
             String jsonResult = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(payload);
-            log.info("[통합 Payload JSON 생성 완료] orderId={}, JSON length={}", order.getOrderId(), jsonResult.length());
-            log.debug("[통합 Payload JSON] orderId={}, JSON={}", order.getOrderId(), jsonResult);
+            log.info("[통합 Payload JSON 생성 완료] bundleOrderId={}, JSON length={}", 
+                firstOrder.getBundleOrderId(), jsonResult.length());
             
             return jsonResult;
         } catch (Exception e) {
-            log.error("[통합 Payload 생성 실패] orderId={}", order.getOrderId(), e);
+            log.error("[통합 Payload 생성 실패] bundleOrderId={}", firstOrder.getBundleOrderId(), e);
             throw new RuntimeException("통합 전표 Payload 생성 실패", e);
         }
     }
 
-    /**
-     * 상품판매 BulkData 생성
-     */
-    private Map<String, Object> createProductSalesBulkData(
-            Order order, String ioDate, Integer uploadSerNo, int index, ErpConfig erpConfig, Store store, String commonWhCd) {
-        
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("UPLOAD_SER_NO", uploadSerNo);
-        data.put("IO_DATE", ioDate);
-        
-        // 거래처 코드: Store의 erpCustomerCode 사용
-        String customerCode = store.getErpCustomerCode() != null ? 
-            store.getErpCustomerCode() : erpConfig.getDefaultCustomerCode();
-        data.put("CUST", customerCode);
-        
-        // 상품 정보 및 창고 코드 (첫 번째 아이템 기준)
-        if (order.getItems() != null && !order.getItems().isEmpty()) {
-            OrderItem firstItem = order.getItems().get(0);
-            
-            log.info("[상품 매핑 조회 시작] orderId={}, productId={}, sku={}", 
-                order.getOrderId(), firstItem.getMarketplaceProductId(), firstItem.getMarketplaceSku());
-            
-            // ProductMapping에서 ERP 품목 코드 조회
-            Optional<ProductMappingResponse> mappingOpt = productMappingService.findActiveMapping(
-                order.getTenantId(),
-                order.getStoreId(),
-                order.getMarketplace(),
-                firstItem.getMarketplaceProductId(),
-                firstItem.getMarketplaceSku()
-            );
-            
-            if (mappingOpt.isPresent()) {
-                ProductMappingResponse mapping = mappingOpt.get();
-                String erpItemCode = mapping.getErpItemCode();
-                
-                log.info("[상품 매핑 조회 성공] erpItemCode={}", erpItemCode);
-                
-                // ERP 품목에서 창고 코드 조회
-                Optional<ErpItem> erpItemOpt = erpItemRepository.findByTenantIdAndErpCodeAndItemCode(
-                    order.getTenantId(), erpConfig.getErpCode(), erpItemCode
-                );
-                
-                if (erpItemOpt.isPresent()) {
-                    ErpItem erpItem = erpItemOpt.get();
-                    data.put("PROD_CD", erpItem.getItemCode());
-                    data.put("PROD_DES", erpItem.getItemName());
-                    // 창고코드는 commonWhCd 사용 (통일)
-                    data.put("WH_CD", commonWhCd);
-                    log.info("[ERP 품목 조회 성공] itemCode={}, warehouseCode={}", 
-                        erpItem.getItemCode(), commonWhCd);
-                } else {
-                    // ERP 품목이 없으면 매핑 정보 사용
-                    data.put("PROD_CD", erpItemCode);
-                    data.put("PROD_DES", mapping.getErpItemName());
-                    // 창고코드는 commonWhCd 사용 (통일)
-                    data.put("WH_CD", commonWhCd);
-                    log.warn("[ERP 품목 없음] tenantId={}, erpCode={}, itemCode={} - 매핑 정보 사용", 
-                        order.getTenantId(), erpConfig.getErpCode(), erpItemCode);
-                }
-            } else {
-                // 매핑 정보가 없으면 마켓 SKU 사용 (fallback)
-                data.put("PROD_CD", firstItem.getMarketplaceSku());
-                data.put("PROD_DES", firstItem.getProductName());
-                // 창고코드는 commonWhCd 사용 (통일)
-                data.put("WH_CD", commonWhCd);
-                log.error("[상품 매핑 없음] orderId={}, productId={}, sku={} - SKU를 PROD_CD로 사용", 
-                    order.getOrderId(), firstItem.getMarketplaceProductId(), firstItem.getMarketplaceSku());
-            }
-            
-            data.put("QTY", firstItem.getQuantity());
-        } else {
-            data.put("PROD_CD", "UNKNOWN");
-            data.put("PROD_DES", "상품판매");
-            data.put("QTY", 1);
-            // 창고코드는 commonWhCd 사용 (통일)
-            data.put("WH_CD", commonWhCd);
-            log.error("[주문 아이템 없음] orderId={}", order.getOrderId());
-        }
-        
-        // 금액 계산 (VAT 포함/미포함)
-        long totalAmount = order.getTotalProductAmount();
-        BigDecimal vatRate = new BigDecimal("0.1"); // VAT 10%
-        long supplyAmt = calculateSupplyAmount(totalAmount, vatRate);
-        long vatAmt = totalAmount - supplyAmt;
-        
-        data.put("USER_PRICE_VAT", totalAmount);
-        data.put("SUPPLY_AMT", supplyAmt);
-        data.put("VAT_AMT", vatAmt);
-        data.put("P_AMT1", totalAmount);
-        
-        data.put("REMARKS", String.format("주문번호: %s %s", 
-            order.getMarketplaceOrderId(), order.getBuyerName()));
-        data.put("P_REMARKS1", String.format("주문번호: %s %s", 
-            order.getMarketplaceOrderId(), order.getBuyerName()));
-        
-        return data;
-    }
 
     /**
-     * 배송비 BulkData 생성
-     */
-    private Map<String, Object> createShippingFeeBulkData(
-            Order order, String ioDate, Integer uploadSerNo, int index, ErpConfig erpConfig, Store store, Long shippingAmount, String commonWhCd) {
-        
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("UPLOAD_SER_NO", uploadSerNo);
-        data.put("IO_DATE", ioDate);
-        
-        // 거래처 코드: Store의 erpCustomerCode 사용
-        String customerCode = store.getErpCustomerCode() != null ? 
-            store.getErpCustomerCode() : erpConfig.getDefaultCustomerCode();
-        data.put("CUST", customerCode);
-        
-        // 배송비 품목 (Store 설정에서 조회, 없으면 ErpConfig에서 조회)
-        String shippingItemCode = store.getShippingItemCode() != null && !store.getShippingItemCode().isEmpty() ?
-            store.getShippingItemCode() :
-            (erpConfig.getShippingItemCode() != null ? erpConfig.getShippingItemCode() : "SHIPPING");
-        
-        log.info("[배송비 품목 조회] tenantId={}, erpCode={}, itemCode={}", 
-            order.getTenantId(), erpConfig.getErpCode(), shippingItemCode);
-        
-        Optional<ErpItem> shippingItem = erpItemRepository.findByTenantIdAndErpCodeAndItemCode(
-            order.getTenantId(), erpConfig.getErpCode(), shippingItemCode
-        );
-        
-        if (shippingItem.isPresent()) {
-            ErpItem item = shippingItem.get();
-            data.put("PROD_CD", item.getItemCode());
-            data.put("PROD_DES", item.getItemName());
-            // 창고코드는 commonWhCd 사용 (통일)
-            data.put("WH_CD", commonWhCd);
-            log.info("[배송비 품목 조회 성공] itemCode={}, warehouseCode={}", 
-                item.getItemCode(), commonWhCd);
-        } else {
-            data.put("PROD_CD", shippingItemCode);
-            data.put("PROD_DES", "배송비");
-            // 창고코드는 commonWhCd 사용 (통일)
-            data.put("WH_CD", commonWhCd);
-            log.warn("[배송비 품목 없음] tenantId={}, erpCode={}, itemCode={} - 기본값 사용", 
-                order.getTenantId(), erpConfig.getErpCode(), shippingItemCode);
-        }
-        
-        data.put("QTY", 1);
-        data.put("UNIT", "");
-        
-        // 금액 계산
-        long totalAmount = shippingAmount;
-        BigDecimal vatRate = new BigDecimal("0.1");
-        long supplyAmt = calculateSupplyAmount(totalAmount, vatRate);
-        long vatAmt = totalAmount - supplyAmt;
-        
-        data.put("USER_PRICE_VAT", totalAmount);
-        data.put("SUPPLY_AMT", supplyAmt);
-        data.put("VAT_AMT", vatAmt);
-        data.put("P_AMT1", totalAmount);
-        
-        data.put("REMARKS", order.getBuyerName());
-        data.put("P_REMARKS1", order.getBuyerName());
-        
-        return data;
-    }
-
-    /**
-     * 상품판매 수수료 BulkData 생성
-     */
-    private Map<String, Object> createCommissionBulkData(
-            Order order, String ioDate, Integer uploadSerNo, int index, 
-            ErpConfig erpConfig, Store store, long commissionAmount, String commonWhCd) {
-        
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("UPLOAD_SER_NO", uploadSerNo);
-        data.put("IO_DATE", ioDate);
-        
-        // 거래처 코드: Store의 erpCustomerCode 사용
-        String customerCode = store.getErpCustomerCode() != null ? 
-            store.getErpCustomerCode() : erpConfig.getDefaultCustomerCode();
-        data.put("CUST", customerCode);
-        
-        // 수수료 품목 (Store에서 조회)
-        String commissionItemCode = store.getCommissionItemCode();
-        if (commissionItemCode == null || commissionItemCode.isEmpty()) {
-            // Store에 없으면 ErpConfig에서 fallback
-            commissionItemCode = erpConfig.getCommissionItemCode();
-            if (commissionItemCode == null || commissionItemCode.isEmpty()) {
-                commissionItemCode = "COMMISSION"; // 최종 기본값
-                log.warn("[수수료 품목 코드 미설정] storeId={}, tenantId={} - 기본값 'COMMISSION' 사용", 
-                    order.getStoreId(), order.getTenantId());
-            }
-        }
-        
-        log.info("[수수료 품목 조회] tenantId={}, erpCode={}, itemCode={}", 
-            order.getTenantId(), erpConfig.getErpCode(), commissionItemCode);
-        
-        Optional<ErpItem> commissionItem = erpItemRepository.findByTenantIdAndErpCodeAndItemCode(
-            order.getTenantId(), erpConfig.getErpCode(), commissionItemCode
-        );
-        
-        if (commissionItem.isPresent()) {
-            ErpItem item = commissionItem.get();
-            data.put("PROD_CD", item.getItemCode());
-            data.put("PROD_DES", item.getItemName());
-            // 창고코드는 commonWhCd 사용 (통일)
-            data.put("WH_CD", commonWhCd);
-            log.info("[수수료 품목 조회 성공] itemCode={}, warehouseCode={}", 
-                item.getItemCode(), commonWhCd);
-        } else {
-            data.put("PROD_CD", commissionItemCode);
-            data.put("PROD_DES", erpConfig.getCommissionItemName() != null ? 
-                erpConfig.getCommissionItemName() : "스마트스토어 수수료");
-            // 창고코드는 commonWhCd 사용 (통일)
-            data.put("WH_CD", commonWhCd);
-            log.warn("[수수료 품목 없음] tenantId={}, erpCode={}, itemCode={} - 기본값 사용", 
-                order.getTenantId(), erpConfig.getErpCode(), commissionItemCode);
-        }
-        
-        data.put("QTY", 1);
-        data.put("UNIT", "");
-        
-        // 금액 계산 (수수료는 마이너스)
-        long finalCommissionAmount = -commissionAmount; // 비용이므로 음수
-        BigDecimal vatRate = new BigDecimal("0.1");
-        long supplyAmt = calculateSupplyAmount(commissionAmount, vatRate);
-        long vatAmt = commissionAmount - supplyAmt;
-        
-        // 마이너스 유지
-        supplyAmt = -supplyAmt;
-        vatAmt = -vatAmt;
-        
-        data.put("USER_PRICE_VAT", finalCommissionAmount);
-        data.put("SUPPLY_AMT", supplyAmt);
-        data.put("VAT_AMT", vatAmt);
-        data.put("P_AMT1", finalCommissionAmount);
-        
-        data.put("REMARKS", order.getBuyerName());
-        data.put("P_REMARKS1", order.getBuyerName());
-        
-        return data;
-    }
-
-    /**
-     * 배송비 수수료 BulkData 생성
-     */
-    private Map<String, Object> createShippingCommissionBulkData(
-            Order order, String ioDate, Integer uploadSerNo, int index, 
-            ErpConfig erpConfig, Store store, long shippingCommission, String commonWhCd) {
-        
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("UPLOAD_SER_NO", uploadSerNo);
-        data.put("IO_DATE", ioDate);
-        
-        // 거래처 코드: Store의 erpCustomerCode 사용
-        String customerCode = store.getErpCustomerCode() != null ? 
-            store.getErpCustomerCode() : erpConfig.getDefaultCustomerCode();
-        data.put("CUST", customerCode);
-        
-        // 배송비 수수료 품목 (Store에서 조회)
-        String shippingCommissionItemCode = store.getShippingCommissionItemCode();
-        if (shippingCommissionItemCode == null || shippingCommissionItemCode.isEmpty()) {
-            // Store에 없으면 ErpConfig에서 fallback
-            shippingCommissionItemCode = erpConfig.getShippingCommissionItemCode();
-        }
-        
-        log.info("[배송비 수수료 품목 조회] tenantId={}, erpCode={}, itemCode={}", 
-            order.getTenantId(), erpConfig.getErpCode(), shippingCommissionItemCode);
-        
-        Optional<ErpItem> shippingCommissionItem = erpItemRepository.findByTenantIdAndErpCodeAndItemCode(
-            order.getTenantId(), erpConfig.getErpCode(), shippingCommissionItemCode
-        );
-        
-        if (shippingCommissionItem.isPresent()) {
-            ErpItem item = shippingCommissionItem.get();
-            data.put("PROD_CD", item.getItemCode());
-            data.put("PROD_DES", item.getItemName());
-            // 창고코드는 commonWhCd 사용 (통일)
-            data.put("WH_CD", commonWhCd);
-            log.info("[배송비 수수료 품목 조회 성공] itemCode={}, warehouseCode={}", 
-                item.getItemCode(), commonWhCd);
-        } else {
-            data.put("PROD_CD", shippingCommissionItemCode);
-            data.put("PROD_DES", erpConfig.getShippingCommissionItemName() != null ? 
-                erpConfig.getShippingCommissionItemName() : "배송비 수수료");
-            // 창고코드는 commonWhCd 사용 (통일)
-            data.put("WH_CD", commonWhCd);
-            log.warn("[배송비 수수료 품목 없음] tenantId={}, erpCode={}, itemCode={} - 기본값 사용", 
-                order.getTenantId(), erpConfig.getErpCode(), shippingCommissionItemCode);
-        }
-        
-        data.put("QTY", 1);
-        data.put("UNIT", "");
-        
-        // 금액 계산 (수수료는 마이너스)
-        long commissionAmount = -shippingCommission;
-        BigDecimal vatRate = new BigDecimal("0.1");
-        long supplyAmt = -calculateSupplyAmount(shippingCommission, vatRate);
-        long vatAmt = commissionAmount - supplyAmt;
-        
-        data.put("USER_PRICE_VAT", commissionAmount);
-        data.put("SUPPLY_AMT", supplyAmt);
-        data.put("VAT_AMT", vatAmt);
-        data.put("P_AMT1", commissionAmount);
-        
-        data.put("REMARKS", order.getBuyerName());
-        data.put("P_REMARKS1", order.getBuyerName());
-        
-        return data;
-    }
-
-    /**
-     * 공급가액 계산 (VAT 제외)
+     * 정산 테이블에서 배송비 수수료 조회 (bundleOrderId 기준)
      * 
-     * @param totalAmount VAT 포함 금액
-     * @param vatRate VAT 비율 (예: 0.1)
-     * @return 공급가액
-     */
-    private long calculateSupplyAmount(long totalAmount, BigDecimal vatRate) {
-        BigDecimal total = BigDecimal.valueOf(totalAmount);
-        BigDecimal divisor = BigDecimal.ONE.add(vatRate);
-        return total.divide(divisor, 0, RoundingMode.HALF_UP).longValue();
-    }
-
-    /**
-     * 정산 테이블에서 배송비 수수료 조회
-     * settlement_type = 'SHIPPING_FEE'인 레코드의 commission_amount
-     * 
-     * 주의: 중복 방지를 위해 첫 번째 레코드만 사용
+     * DELIVERY 타입의 정산 데이터는 별도 productOrderId를 가지므로
+     * orderId가 아닌 bundleOrderId로 조회해야 함
      * 
      * @param order 주문 엔티티
      * @return 배송비 수수료 (없으면 null)
      */
     private Long getShippingFeeCommissionFromSettlement(Order order) {
         try {
-            List<SettlementOrder> settlements = settlementOrderRepository
-                .findByOrderIdAndSettlementType(order.getOrderId(), SettlementType.SHIPPING_FEE);
+            String bundleOrderId = order.getBundleOrderId();
+            
+            // bundleOrderId가 없으면 orderId로 폴백
+            if (bundleOrderId == null || bundleOrderId.isEmpty()) {
+                log.debug("[배송비 수수료 - bundleOrderId 없음, orderId로 조회] orderId={}", order.getOrderId());
+                List<SettlementOrder> settlements = settlementOrderRepository.findByOrderId(order.getOrderId());
+                return extractShippingCommissionFromSettlements(settlements, order);
+            }
+            
+            // bundleOrderId로 정산 데이터 조회 (DELIVERY 타입 포함)
+            log.info("[배송비 수수료 조회 시작 - bundleOrderId 기준] bundleOrderId={}", bundleOrderId);
+            List<SettlementOrder> settlements = settlementOrderRepository.findByBundleOrderIdWithItems(bundleOrderId);
             
             if (settlements.isEmpty()) {
-                log.debug("[배송비 수수료 없음] orderId={}, settlementType=SHIPPING_FEE", order.getOrderId());
+                log.debug("[정산 데이터 없음 - bundleOrderId 기준] bundleOrderId={}", bundleOrderId);
                 return null;
             }
             
-            // 중복 데이터 경고
-            if (settlements.size() > 1) {
-                log.warn("[배송비 수수료 중복 데이터 발견] orderId={}, settlementType=SHIPPING_FEE, count={} - 첫 번째 레코드만 사용", 
-                    order.getOrderId(), settlements.size());
-            }
+            log.info("[정산 데이터 조회 완료] bundleOrderId={}, 정산건수={}", bundleOrderId, settlements.size());
             
-            // 첫 번째 SHIPPING_FEE 타입 레코드의 commission_amount 사용
-            SettlementOrder settlement = settlements.get(0);
-            BigDecimal commission = settlement.getCommissionAmount();
+            return extractShippingCommissionFromSettlements(settlements, order);
             
-            if (commission == null || commission.compareTo(BigDecimal.ZERO) == 0) {
-                log.debug("[배송비 수수료 0원] orderId={}, commission={}", order.getOrderId(), commission);
-                return null;
-            }
-            
-            // 음수 값 검증 (배송비 수수료는 마이너스여야 함)
-            if (commission.compareTo(BigDecimal.ZERO) > 0) {
-                log.warn("[배송비 수수료 양수 값 발견] orderId={}, commission={} - 음수로 변환하지 않음 (데이터 확인 필요)", 
-                    order.getOrderId(), commission);
-            }
-            
-            long commissionValue = Math.abs(commission.longValue()); // 절대값으로 변환 (createShippingCommissionBulkData에서 다시 음수로 만듦)
-            log.info("[배송비 수수료 조회 성공] orderId={}, settlementType=SHIPPING_FEE, commission={}, count={}", 
-                order.getOrderId(), commissionValue, settlements.size());
-            
-            return commissionValue;
         } catch (Exception e) {
-            log.error("[배송비 수수료 조회 실패] orderId={}", order.getOrderId(), e);
+            log.error("[배송비 수수료 조회 실패] orderId={}, bundleOrderId={}", 
+                order.getOrderId(), order.getBundleOrderId(), e);
             return null;
         }
+    }
+
+    /**
+     * 정산 데이터에서 배송비 수수료 추출
+     * DELIVERY 타입의 items만 필터링하여 수수료 합산
+     */
+    private Long extractShippingCommissionFromSettlements(List<SettlementOrder> settlements, Order order) {
+        if (settlements == null || settlements.isEmpty()) {
+            return null;
+        }
+        
+        // 모든 정산 주문의 items를 로깅
+        for (SettlementOrder so : settlements) {
+            log.debug("[정산 주문 items 확인] settlementOrderId={}, bundleOrderId={}, itemCount={}", 
+                so.getSettlementOrderId(), so.getBundleOrderId(), 
+                so.getItems() != null ? so.getItems().size() : 0);
+            
+            if (so.getItems() != null) {
+                for (SettlementOrderItem item : so.getItems()) {
+                    log.debug("[정산 아이템] productOrderType={}, totalPayCommissionAmount={}", 
+                        item.getProductOrderType(), item.getTotalPayCommissionAmount());
+                }
+            }
+        }
+        
+        // 배송비(DELIVERY) 타입의 items만 필터링하여 수수료 합산
+        BigDecimal commission = settlements.stream()
+            .flatMap(so -> so.getItems().stream())
+            .filter(item -> "DELIVERY".equals(item.getProductOrderType()))
+            .map(SettlementOrderItem::getTotalPayCommissionAmount)
+            .filter(java.util.Objects::nonNull)
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        
+        log.info("[DELIVERY 타입 수수료 합산 결과] orderId={}, commission={}", order.getOrderId(), commission);
+        
+        if (commission.compareTo(BigDecimal.ZERO) == 0) {
+            log.debug("[배송비 수수료 0원] orderId={}", order.getOrderId());
+            return null;
+        }
+        
+        // 음수 값 검증 (배송비 수수료는 마이너스여야 함)
+        if (commission.compareTo(BigDecimal.ZERO) > 0) {
+            log.warn("[배송비 수수료 양수 값 발견] orderId={}, commission={} - 음수로 변환하지 않음 (데이터 확인 필요)", 
+                order.getOrderId(), commission);
+        }
+        
+        long commissionValue = Math.abs(commission.longValue());
+        log.info("[배송비 수수료 조회 성공] orderId={}, bundleOrderId={}, commission={}", 
+            order.getOrderId(), order.getBundleOrderId(), commissionValue);
+        
+        return commissionValue;
+    }
+
+    /**
+     * 주문에서 배송비 수수료 조회
+     * 
+     * 번들 주문의 경우, 배송비 수수료가 대표 주문 1개에만 저장되어 있을 수 있음.
+     * 현재 주문에 배송비 수수료가 없으면, 같은 번들의 다른 주문에서 조회.
+     * 
+     * @param order 현재 주문
+     * @return 배송비 수수료 (없으면 null)
+     */
+    private Long getShippingCommissionFromOrderOrBundle(Order order) {
+        // 1. 현재 주문에서 배송비 수수료 조회
+        Long shippingCommission = order.getShippingCommissionAmount();
+        
+        if (shippingCommission != null && shippingCommission > 0) {
+            log.info("[배송비 수수료 - 현재 주문에서 조회 성공] orderId={}, shippingCommission={}", 
+                order.getOrderId(), shippingCommission);
+            return shippingCommission;
+        }
+        
+        // 2. 현재 주문에 없으면, 같은 번들의 다른 주문에서 조회
+        String bundleOrderId = order.getBundleOrderId();
+        if (bundleOrderId == null || bundleOrderId.isEmpty()) {
+            log.debug("[배송비 수수료 - bundleOrderId 없음] orderId={}", order.getOrderId());
+            return null;
+        }
+        
+        log.info("[배송비 수수료 - 번들 내 다른 주문에서 조회 시도] orderId={}, bundleOrderId={}", 
+            order.getOrderId(), bundleOrderId);
+        
+        // 같은 번들의 모든 주문 조회
+        List<Order> bundleOrders = orderRepository.findByTenantIdAndBundleOrderIdIn(
+            order.getTenantId(), 
+            Collections.singletonList(bundleOrderId)
+        );
+        
+        // 배송비 수수료가 있는 주문 찾기
+        for (Order bundleOrder : bundleOrders) {
+            Long bundleShippingCommission = bundleOrder.getShippingCommissionAmount();
+            if (bundleShippingCommission != null && bundleShippingCommission > 0) {
+                log.info("[배송비 수수료 - 번들 내 다른 주문에서 조회 성공] " +
+                    "currentOrderId={}, foundOrderId={}, shippingCommission={}", 
+                    order.getOrderId(), bundleOrder.getOrderId(), bundleShippingCommission);
+                return bundleShippingCommission;
+            }
+        }
+        
+        log.debug("[배송비 수수료 - 번들 내 모든 주문에서 찾지 못함] orderId={}, bundleOrderId={}, bundleOrderCount={}", 
+            order.getOrderId(), bundleOrderId, bundleOrders.size());
+        return null;
     }
 
     /**
@@ -633,24 +450,21 @@ public class OrderSettlementPostingService {
      */
     private Long getProductCommissionFromSettlement(Order order) {
         try {
-            // SALES 타입의 정산 데이터 조회 (상품 매출)
+            // 정산 데이터 조회
             List<SettlementOrder> settlements = settlementOrderRepository
-                .findByOrderIdAndSettlementType(order.getOrderId(), SettlementType.SALES);
+                .findByOrderId(order.getOrderId());
             
             if (settlements.isEmpty()) {
-                log.debug("[상품 수수료 없음] orderId={}, settlementType=SALES", order.getOrderId());
+                log.debug("[정산 데이터 없음] orderId={}", order.getOrderId());
                 return null;
             }
             
-            // 중복 데이터 경고
-            if (settlements.size() > 1) {
-                log.warn("[상품 수수료 중복 데이터 발견] orderId={}, settlementType=SALES, count={} - 첫 번째 레코드만 사용", 
-                    order.getOrderId(), settlements.size());
-            }
-            
-            // 첫 번째 SALES 타입 레코드의 commission_amount 사용
-            SettlementOrder settlement = settlements.get(0);
-            BigDecimal commission = settlement.getCommissionAmount();
+            // 상품(DELIVERY가 아닌) 타입의 items만 필터링하여 수수료 합산
+            BigDecimal commission = settlements.stream()
+                .flatMap(so -> so.getItems().stream())
+                .filter(item -> !"DELIVERY".equals(item.getProductOrderType()))
+                .map(SettlementOrderItem::calculateTotalCommission)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
             
             if (commission == null || commission.compareTo(BigDecimal.ZERO) == 0) {
                 log.debug("[상품 수수료 0원] orderId={}, commission={}", order.getOrderId(), commission);
@@ -664,8 +478,8 @@ public class OrderSettlementPostingService {
             }
             
             long commissionValue = Math.abs(commission.longValue()); // 절대값으로 변환 (createCommissionBulkData에서 다시 음수로 만듦)
-            log.info("[상품 수수료 조회 성공] orderId={}, settlementType=SALES, commission={}, count={}", 
-                order.getOrderId(), commissionValue, settlements.size());
+            log.info("[상품 수수료 조회 성공] orderId={}, commission={}", 
+                order.getOrderId(), commissionValue);
             
             return commissionValue;
         } catch (Exception e) {

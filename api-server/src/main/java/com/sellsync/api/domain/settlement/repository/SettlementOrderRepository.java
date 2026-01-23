@@ -2,7 +2,6 @@ package com.sellsync.api.domain.settlement.repository;
 
 import com.sellsync.api.domain.order.enums.Marketplace;
 import com.sellsync.api.domain.settlement.entity.SettlementOrder;
-import com.sellsync.api.domain.settlement.enums.SettlementType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -23,13 +22,12 @@ public interface SettlementOrderRepository extends JpaRepository<SettlementOrder
 
     /**
      * 멱등성 키로 정산 주문 조회 (ADR-0001)
-     * Key: tenant_id + settlement_batch_id + order_id + settlement_type
+     * Key: tenant_id + settlement_batch_id + order_id
      */
-    Optional<SettlementOrder> findByTenantIdAndSettlementBatch_SettlementBatchIdAndOrderIdAndSettlementType(
+    Optional<SettlementOrder> findByTenantIdAndSettlementBatch_SettlementBatchIdAndOrderId(
         UUID tenantId,
         UUID settlementBatchId,
-        UUID orderId,
-        SettlementType settlementType
+        UUID orderId
     );
 
     /**
@@ -42,10 +40,33 @@ public interface SettlementOrderRepository extends JpaRepository<SettlementOrder
     /**
      * 주문별 정산 내역 조회
      */
-    List<SettlementOrder> findByOrderIdAndSettlementType(
-        UUID orderId,
-        SettlementType settlementType
-    );
+    List<SettlementOrder> findByOrderId(UUID orderId);
+    
+    /**
+     * 주문별 정산 내역 조회 (items fetch join)
+     * N+1 쿼리 방지를 위해 items를 함께 조회
+     * 
+     * @param orderId 주문 ID
+     * @return 정산 주문 목록 (items 포함)
+     */
+    @Query("SELECT DISTINCT so FROM SettlementOrder so " +
+           "LEFT JOIN FETCH so.items " +
+           "WHERE so.orderId = :orderId")
+    List<SettlementOrder> findByOrderIdWithItems(@Param("orderId") UUID orderId);
+    
+    /**
+     * bundleOrderId로 정산 주문 조회 (배송비 수수료 조회용)
+     * 
+     * DELIVERY 타입의 정산 데이터는 별도 productOrderId를 가지므로
+     * orderId가 아닌 bundleOrderId로 조회해야 함
+     * 
+     * @param bundleOrderId 번들 주문 ID (네이버: 묶음 배송 주문 ID)
+     * @return 정산 주문 목록 (items 포함)
+     */
+    @Query("SELECT DISTINCT so FROM SettlementOrder so " +
+           "LEFT JOIN FETCH so.items " +
+           "WHERE so.bundleOrderId = :bundleOrderId")
+    List<SettlementOrder> findByBundleOrderIdWithItems(@Param("bundleOrderId") String bundleOrderId);
 
     /**
      * 테넌트 + 마켓별 정산 주문 목록 조회

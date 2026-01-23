@@ -189,6 +189,11 @@ public class SmartStoreOrderClient implements MarketplaceOrderClient {
     /**
      * 스마트스토어 주문 JSON → 통합 DTO 변환
      * 응답 구조: { "content": { "order": {...}, "productOrder": {...}, "delivery": {...} } }
+     * 
+     * ⚠️ 중요: 스마트스토어는 상품주문 단위로 응답을 반환
+     * - 하나의 주문(orderId)에 여러 상품(productOrderId)이 있을 수 있음
+     * - marketplaceOrderId는 반드시 productOrderId(상품주문번호)를 사용해야 함
+     * - orderId를 사용하면 동일 주문의 여러 상품 중 마지막 것만 저장됨
      */
     private MarketplaceOrderDto convertOrder(JsonNode node) {
         // content.order, content.productOrder, content.delivery 추출
@@ -199,8 +204,8 @@ public class SmartStoreOrderClient implements MarketplaceOrderClient {
         
         return MarketplaceOrderDto.builder()
                 .rawPayload(node.toString())
-                .marketplaceOrderId(orderNode.path("orderId").asText())
-                .bundleOrderId(orderNode.path("orderNo").asText(null))
+                .marketplaceOrderId(productOrderNode.path("productOrderId").asText())  // ✅ 상품주문번호 사용 (orderId → productOrderId)
+                .bundleOrderId(orderNode.path("orderId").asText(null))  // ✅ 주문번호는 bundleOrderId로 (orderNo → orderId)
                 .orderStatus(mapStatus(productOrderNode.path("productOrderStatus").asText()))
                 .orderedAt(parseDateTime(orderNode.path("orderDate").asText()))
                 .paidAt(parseDateTime(orderNode.path("paymentDate").asText()))
@@ -247,6 +252,7 @@ public class SmartStoreOrderClient implements MarketplaceOrderClient {
         
         // 단일 상품 주문인 경우
         MarketplaceOrderItemDto item = MarketplaceOrderItemDto.builder()
+                .marketplaceItemId(productOrderNode.path("productOrderId").asText())  // ✅ 스마트스토어 상품라인 고유ID
                 .marketplaceProductId(productOrderNode.path("productId").asText())
                 .marketplaceSku(extractOptionCode(productOrderNode))
                 .productName(productOrderNode.path("productName").asText())

@@ -9,6 +9,12 @@ import lombok.Data;
 @Data
 @Builder
 public class MarketplaceOrderItemDto {
+    /**
+     * 마켓플레이스에서 부여한 상품 라인 고유 ID
+     * - 스마트스토어: productOrderId
+     * - 쿠팡: orderItemId
+     */
+    private String marketplaceItemId;
     private String marketplaceProductId;
     private String marketplaceSku;
     private String productName;

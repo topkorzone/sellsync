@@ -23,6 +23,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@org.hibernate.annotations.DynamicUpdate  // 변경된 컬럼만 UPDATE (성능 최적화)
 public class Order {
 
     @Id

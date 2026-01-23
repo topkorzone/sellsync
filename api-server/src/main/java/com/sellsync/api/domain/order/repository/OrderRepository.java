@@ -32,6 +32,11 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
             @Param("storeId") UUID storeId, 
             @Param("marketplaceOrderId") String marketplaceOrderId);
     
+    // 번들 주문번호로 조회 (네이버 스마트스토어 정산 전표 생성용)
+    // 하나의 bundleOrderId에 여러 개의 productOrderId가 있을 수 있으므로 List 반환
+    @Query("SELECT o FROM Order o LEFT JOIN FETCH o.items WHERE o.bundleOrderId = :bundleOrderId ORDER BY o.orderedAt ASC")
+    List<Order> findByBundleOrderId(@Param("bundleOrderId") String bundleOrderId);
+    
     // 테넌트 + 마켓 주문번호로 조회 (송장 등록용)
     Optional<Order> findByTenantIdAndMarketplaceOrderId(UUID tenantId, String marketplaceOrderId);
 
@@ -129,6 +134,41 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
             @Param("tenantId") UUID tenantId,
             @Param("marketplaceOrderIds") List<String> marketplaceOrderIds
     );
+    
+    // 5-1. 번들 주문 ID로 주문 벌크 조회 (정산 매칭용 - 네이버 스마트스토어)
+    @Query("SELECT o FROM Order o WHERE o.tenantId = :tenantId " +
+           "AND o.bundleOrderId IN :bundleOrderIds")
+    List<Order> findByTenantIdAndBundleOrderIdIn(
+            @Param("tenantId") UUID tenantId,
+            @Param("bundleOrderIds") List<String> bundleOrderIds
+    );
+    
+    // 5-2. 스토어별 번들 주문 ID로 벌크 조회 (정산 배송비 수수료 매칭용)
+    @Query("SELECT o FROM Order o WHERE o.storeId = :storeId " +
+           "AND o.bundleOrderId IN :bundleOrderIds " +
+           "ORDER BY o.orderedAt ASC")
+    List<Order> findByStoreIdAndBundleOrderIdIn(
+            @Param("storeId") UUID storeId,
+            @Param("bundleOrderIds") List<String> bundleOrderIds
+    );
+    
+    // 6. 스토어별 마켓플레이스 주문 ID로 벌크 조회 (주문 수집 최적화)
+    @Query("SELECT o FROM Order o LEFT JOIN FETCH o.items " +
+           "WHERE o.storeId = :storeId " +
+           "AND o.marketplaceOrderId IN :marketplaceOrderIds")
+    List<Order> findByStoreIdAndMarketplaceOrderIdIn(
+            @Param("storeId") UUID storeId,
+            @Param("marketplaceOrderIds") List<String> marketplaceOrderIds
+    );
+    
+    // 7. 스토어별 결제일 기간 내 주문 수 집계 (정산 수집 사전 체크용)
+    @Query("SELECT COUNT(o) FROM Order o WHERE o.storeId = :storeId " +
+           "AND o.paidAt >= :from AND o.paidAt < :to")
+    long countByStoreIdAndPaidAtBetween(
+            @Param("storeId") UUID storeId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
+    );
 
     // ============================================================
     // 벌크 업데이트 메서드 (배치 최적화)
@@ -136,12 +176,14 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
 
     /**
      * 정산 정보 벌크 업데이트 (Native Query)
-     * orderId 목록에 해당하는 주문들의 수수료 정보를 한 번에 업데이트
+     * marketplace_order_id 목록에 해당하는 주문들의 수수료 정보를 한 번에 업데이트
      * 
      * 성능: O(1) 쿼리로 N건 처리
      * 
+     * ⚠️ 주의: 네이버 스마트스토어 정산 API의 productOrderId = marketplace_order_id
+     * 
      * @param tenantId 테넌트 ID
-     * @param orderIds 마켓플레이스 주문 ID 배열
+     * @param marketplaceOrderIds 마켓플레이스 주문 ID 배열 (정산 API의 productOrderId)
      * @param commissionAmounts 상품 수수료 금액 배열
      * @param shippingCommissionAmounts 배송비 수수료 금액 배열
      * @param expectedSettlementAmounts 예상 정산 금액 배열
@@ -159,7 +201,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
             settlement_date = temp.settlement_date,
             updated_at = NOW()
         FROM (
-            SELECT unnest(CAST(:orderIds AS text[])) AS marketplace_order_id,
+            SELECT unnest(CAST(:marketplaceOrderIds AS text[])) AS marketplace_order_id,
                    unnest(CAST(:commissionAmounts AS bigint[])) AS commission_amount,
                    unnest(CAST(:shippingCommissionAmounts AS bigint[])) AS shipping_commission_amount,
                    unnest(CAST(:expectedSettlementAmounts AS bigint[])) AS expected_settlement_amount,
@@ -170,10 +212,115 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
         """, nativeQuery = true)
     int bulkUpdateSettlementInfo(
         @Param("tenantId") UUID tenantId,
-        @Param("orderIds") String[] orderIds,
+        @Param("marketplaceOrderIds") String[] marketplaceOrderIds,
         @Param("commissionAmounts") Long[] commissionAmounts,
         @Param("shippingCommissionAmounts") Long[] shippingCommissionAmounts,
         @Param("expectedSettlementAmounts") Long[] expectedSettlementAmounts,
         @Param("settlementDates") LocalDate[] settlementDates
+    );
+    
+    /**
+     * 정산 정보 벌크 업데이트 (storeId 기반 - Native Query)
+     * 
+     * ⚠️ 주요 차이점: tenant_id 대신 store_id로 필터링
+     * - 동일 테넌트 내 여러 스토어가 있을 경우, 해당 스토어의 주문만 매칭
+     * 
+     * @param storeId 스토어 ID
+     * @param marketplaceOrderIds 마켓플레이스 주문 ID 배열
+     * @param commissionAmounts 상품 수수료 금액 배열
+     * @param shippingCommissionAmounts 배송비 수수료 금액 배열
+     * @param expectedSettlementAmounts 예상 정산 금액 배열
+     * @param settlementDates 정산 예정일 배열
+     * @return 업데이트된 주문 개수
+     */
+    @Modifying
+    @Query(value = """
+        UPDATE orders o 
+        SET commission_amount = temp.commission_amount,
+            shipping_commission_amount = temp.shipping_commission_amount,
+            expected_settlement_amount = temp.expected_settlement_amount,
+            settlement_status = 'COLLECTED',
+            settlement_collected_at = NOW(),
+            settlement_date = temp.settlement_date,
+            updated_at = NOW()
+        FROM (
+            SELECT unnest(CAST(:marketplaceOrderIds AS text[])) AS marketplace_order_id,
+                   unnest(CAST(:commissionAmounts AS bigint[])) AS commission_amount,
+                   unnest(CAST(:shippingCommissionAmounts AS bigint[])) AS shipping_commission_amount,
+                   unnest(CAST(:expectedSettlementAmounts AS bigint[])) AS expected_settlement_amount,
+                   unnest(CAST(:settlementDates AS date[])) AS settlement_date
+        ) AS temp
+        WHERE o.marketplace_order_id = temp.marketplace_order_id
+          AND o.store_id = :storeId
+        """, nativeQuery = true)
+    int bulkUpdateSettlementInfoByStoreId(
+        @Param("storeId") UUID storeId,
+        @Param("marketplaceOrderIds") String[] marketplaceOrderIds,
+        @Param("commissionAmounts") Long[] commissionAmounts,
+        @Param("shippingCommissionAmounts") Long[] shippingCommissionAmounts,
+        @Param("expectedSettlementAmounts") Long[] expectedSettlementAmounts,
+        @Param("settlementDates") LocalDate[] settlementDates
+    );
+    
+    /**
+     * 상품 수수료 벌크 업데이트 (marketplaceOrderId 기준)
+     * 
+     * 정산 수집 시 상품(ORDER 타입) 수수료만 업데이트
+     * 
+     * @param storeId 스토어 ID
+     * @param marketplaceOrderIds 마켓플레이스 주문 ID 배열
+     * @param commissionAmounts 상품 수수료 금액 배열
+     * @return 업데이트된 주문 개수
+     */
+    @Modifying
+    @Query(value = """
+        UPDATE orders o 
+        SET 
+            commission_amount = temp.commission_amount,
+            updated_at = NOW()
+        FROM (
+            SELECT 
+                unnest(CAST(:marketplaceOrderIds AS text[])) as marketplace_order_id,
+                unnest(CAST(:commissionAmounts AS bigint[])) as commission_amount
+        ) AS temp
+        WHERE o.marketplace_order_id = temp.marketplace_order_id
+        AND o.store_id = :storeId
+        """, nativeQuery = true)
+    int bulkUpdateCommissionByMarketplaceOrderId(
+            @Param("storeId") UUID storeId,
+            @Param("marketplaceOrderIds") String[] marketplaceOrderIds,
+            @Param("commissionAmounts") Long[] commissionAmounts
+    );
+
+    /**
+     * 배송비 수수료 벌크 업데이트 (bundleOrderId 기준)
+     * 
+     * 정산 수집 시 배송비(DELIVERY 타입) 수수료만 업데이트
+     * 동일 bundleOrderId의 대표 주문(가장 먼저 생성된 주문)에만 업데이트
+     * 
+     * @param storeId 스토어 ID
+     * @param bundleOrderIds 번들 주문 ID 배열
+     * @param shippingCommissions 배송비 수수료 금액 배열
+     * @return 업데이트된 주문 개수
+     */
+    @Modifying
+    @Query(value = """
+        UPDATE orders o 
+        SET 
+            shipping_commission_amount = temp.shipping_commission,
+            updated_at = NOW()
+        FROM (
+            SELECT 
+                unnest(CAST(:bundleOrderIds AS text[])) as bundle_order_id,
+                unnest(CAST(:shippingCommissions AS bigint[])) as shipping_commission
+        ) AS temp
+        WHERE o.bundle_order_id = temp.bundle_order_id
+        AND o.store_id = :storeId
+        AND o.shipping_fee > 0
+        """, nativeQuery = true)
+    int bulkUpdateShippingCommissionByBundleOrderId(
+            @Param("storeId") UUID storeId,
+            @Param("bundleOrderIds") String[] bundleOrderIds,
+            @Param("shippingCommissions") Long[] shippingCommissions
     );
 }

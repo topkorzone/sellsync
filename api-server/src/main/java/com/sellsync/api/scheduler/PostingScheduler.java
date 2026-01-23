@@ -51,7 +51,7 @@ public class PostingScheduler {
      * 
      * TODO: 실제 운영에서는 tenant별로 분리 실행 필요
      */
-    @Scheduled(fixedDelay = 60000, initialDelay = 10000) // 1분마다, 시작 후 10초 대기
+//    @Scheduled(fixedDelay = 60000, initialDelay = 10000) // 1분마다, 시작 후 10초 대기
     public void processReadyPostings() {
         try {
             log.debug("[스케줄러] READY 전표 전송 체크");
@@ -104,7 +104,7 @@ public class PostingScheduler {
      * 
      * ⚠️ 중요: 자동 재시도는 ERP 설정에서 auto_send_enabled=true인 경우에만 실행됩니다.
      */
-    @Scheduled(fixedDelay = 300000, initialDelay = 30000) // 5분마다, 시작 후 30초 대기
+//    @Scheduled(fixedDelay = 300000, initialDelay = 30000) // 5분마다, 시작 후 30초 대기
     public void processRetryablePostings() {
         try {
             log.debug("[스케줄러] 재시도 대상 전표 체크");
@@ -161,7 +161,7 @@ public class PostingScheduler {
      * - 성공/실패 카운트 로깅
      * - 개별 주문 실패 시에도 다음 주문 계속 처리
      */
-    @Scheduled(fixedDelay = 600000, initialDelay = 60000) // 10분마다, 시작 후 1분 대기
+//    @Scheduled(fixedDelay = 600000, initialDelay = 60000) // 10분마다, 시작 후 1분 대기
     public void createPostingsForSettledOrders() {
         try {
             log.debug("[스케줄러] 정산 전표 생성 체크");
@@ -197,7 +197,7 @@ public class PostingScheduler {
                     
                     // 통합 전표 생성 (한 주문당 1개의 전표)
                     PostingResponse createdPosting = orderSettlementPostingService
-                            .createPostingsForSettledOrder(order.getOrderId(), erpCode);
+                            .createPostingsForSettledOrder(order.getBundleOrderId(), erpCode);
                     
                     successCount++;
                     log.debug("[정산 전표 생성 성공] orderId={}, postingId={}", 

@@ -36,6 +36,7 @@ public class OrderListResponse {
     private UUID storeId;
     private Marketplace marketplace;
     private String marketplaceOrderId;
+    private String bundleOrderId;
     private OrderStatus orderStatus;
     private LocalDateTime paidAt;  // 결재일 (주문일시에서 변경)
     
@@ -90,6 +91,7 @@ public class OrderListResponse {
                 .storeId(order.getStoreId())
                 .marketplace(order.getMarketplace())
                 .marketplaceOrderId(order.getMarketplaceOrderId())
+                .bundleOrderId(order.getBundleOrderId())
                 .orderStatus(order.getOrderStatus())
                 .paidAt(order.getPaidAt())  // 결재일로 변경
                 .buyerName(order.getBuyerName())

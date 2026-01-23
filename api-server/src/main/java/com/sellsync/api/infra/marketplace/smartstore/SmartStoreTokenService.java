@@ -72,7 +72,10 @@ public class SmartStoreTokenService {
             String password = credentials.getClientId() + "_" + timestampStr;
             
             // 3. bcrypt 해싱 (CLIENT_SECRET을 salt로 사용)
-            String hashed = BCrypt.hashpw(password, credentials.getClientSecret());
+            // ⚠️ 네이버 스마트스토어의 CLIENT_SECRET은 불완전한 BCrypt salt 형식 (26자)
+            // Spring Security BCrypt는 최소 29자 필요 → 패딩 처리
+            String salt = normalizeBcryptSalt(credentials.getClientSecret());
+            String hashed = BCrypt.hashpw(password, salt);
             log.debug("[SmartStore] Hashed password (first 50 chars): {}...", 
                     hashed.substring(0, Math.min(50, hashed.length())));
             
@@ -119,6 +122,49 @@ public class SmartStoreTokenService {
             log.error("[SmartStore] Token request failed: {}", e.getMessage(), e);
             throw new RuntimeException("SmartStore authentication failed: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * BCrypt salt 정규화
+     * 
+     * 네이버 스마트스토어의 CLIENT_SECRET은 불완전한 BCrypt salt 형식 (26자)
+     * Spring Security BCrypt는 완전한 형식 (29자) 필요
+     * 
+     * 형식: $2a$[rounds]$[22-character-salt]
+     * 예: $2a$04$XdHDByvGUqJD5rn5Pjm7Re (26자) → $2a$04$XdHDByvGUqJD5rn5Pjm7Reu (29자)
+     * 
+     * @param clientSecret 원본 CLIENT_SECRET
+     * @return 정규화된 BCrypt salt (29자)
+     */
+    private String normalizeBcryptSalt(String clientSecret) {
+        if (clientSecret == null || clientSecret.isEmpty()) {
+            throw new IllegalArgumentException("CLIENT_SECRET is null or empty");
+        }
+        
+        // BCrypt salt 형식 검증: $2[a/b/y]$[rounds]$[salt]
+        if (!clientSecret.startsWith("$2a$") && 
+            !clientSecret.startsWith("$2b$") && 
+            !clientSecret.startsWith("$2y$")) {
+            log.warn("[SmartStore] CLIENT_SECRET이 올바른 BCrypt 형식이 아닙니다: {}", 
+                    clientSecret.substring(0, Math.min(10, clientSecret.length())));
+        }
+        
+        // 이미 완전한 형식이면 그대로 반환
+        if (clientSecret.length() >= 29) {
+            log.debug("[SmartStore] CLIENT_SECRET이 이미 완전한 형식입니다 ({}자)", clientSecret.length());
+            return clientSecret;
+        }
+        
+        // 부족한 문자를 패딩 (BCrypt base64 알파벳 사용: ./A-Za-z0-9)
+        // 네이버는 항상 같은 형식을 사용하므로 'u' 문자로 패딩
+        int paddingNeeded = 29 - clientSecret.length();
+        String padding = "u".repeat(paddingNeeded);
+        String normalizedSalt = clientSecret + padding;
+        
+        log.debug("[SmartStore] CLIENT_SECRET 정규화: {}자 → {}자 (패딩: {} 문자)", 
+                clientSecret.length(), normalizedSalt.length(), paddingNeeded);
+        
+        return normalizedSalt;
     }
 
     /**

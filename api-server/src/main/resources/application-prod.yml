@@ -42,3 +42,8 @@ management:
   endpoint:
     health:
       show-details: never
+
+# Scheduler test controller settings (disabled in production)
+scheduler:
+  test:
+    enabled: false  # ⚠️ 운영 환경에서는 반드시 false로 유지
