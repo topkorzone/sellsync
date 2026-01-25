@@ -15,8 +15,8 @@ import com.sellsync.api.domain.posting.enums.PostingType;
 import com.sellsync.api.domain.posting.exception.InvalidStateTransitionException;
 import com.sellsync.api.domain.posting.exception.PostingNotFoundException;
 import com.sellsync.api.domain.posting.repository.PostingRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -25,17 +25,19 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * 전표(Posting) 서비스 - ADR-0001 멱등성 & 상태머신 구현
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class PostingService {
 
     private final PostingRepository postingRepository;
@@ -43,6 +45,23 @@ public class PostingService {
     private final TemplateBasedPostingBuilder templateBasedPostingBuilder;
     private final com.sellsync.api.domain.store.repository.StoreRepository storeRepository;
     private final com.sellsync.api.domain.mapping.service.ProductMappingService productMappingService;
+    private final OrderSettlementPostingService orderSettlementPostingService;
+
+    // Constructor with @Lazy for circular dependency resolution
+    public PostingService(
+            PostingRepository postingRepository,
+            OrderRepository orderRepository,
+            TemplateBasedPostingBuilder templateBasedPostingBuilder,
+            com.sellsync.api.domain.store.repository.StoreRepository storeRepository,
+            com.sellsync.api.domain.mapping.service.ProductMappingService productMappingService,
+            @Lazy OrderSettlementPostingService orderSettlementPostingService) {
+        this.postingRepository = postingRepository;
+        this.orderRepository = orderRepository;
+        this.templateBasedPostingBuilder = templateBasedPostingBuilder;
+        this.storeRepository = storeRepository;
+        this.productMappingService = productMappingService;
+        this.orderSettlementPostingService = orderSettlementPostingService;
+    }
 
     /**
      * 전표 생성/조회 (멱등 Upsert)
@@ -247,6 +266,11 @@ public class PostingService {
             Order order = orderRepository.findById(posting.getOrderId()).orElse(null);
             
             if (order != null) {
+                // bundleOrderId 설정
+                if (order.getBundleOrderId() != null && !order.getBundleOrderId().isEmpty()) {
+                    response.setBundleOrderId(order.getBundleOrderId());
+                }
+                
                 // 첫 번째 아이템에서 상품주문 ID 설정
                 if (order.getItems() != null && !order.getItems().isEmpty()) {
                     String productId = order.getItems().get(0).getMarketplaceProductId();
@@ -351,18 +375,46 @@ public class PostingService {
         log.debug("[전표 목록 조회] tenantId={}, orderId={}, status={}, type={}, total={}", 
                 tenantId, orderId, status, postingType, postings.getTotalElements());
 
+        // Order ID 목록 추출 (null 제외, 중복 제거)
+        List<UUID> orderIds = postings.getContent().stream()
+                .map(Posting::getOrderId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+
+        // Order 일괄 조회 (N+1 방지)
+        Map<UUID, Order> orderMap = new HashMap<>();
+        if (!orderIds.isEmpty()) {
+            List<Order> orders = orderRepository.findAllById(orderIds);
+            orderMap = orders.stream()
+                    .collect(Collectors.toMap(
+                            Order::getOrderId,
+                            order -> order,
+                            (a, b) -> a  // 중복 시 첫 번째 값 사용
+                    ));
+        }
+
+        // PostingResponse 변환 및 bundleOrderId, marketplaceProductId 설정
+        final Map<UUID, Order> finalOrderMap = orderMap;
         return postings.map(posting -> {
             PostingResponse response = PostingResponse.from(posting);
             
-            // Order의 첫 번째 아이템에서 상품주문 ID(marketplaceProductId) 조회
-            try {
-                Order order = orderRepository.findById(posting.getOrderId()).orElse(null);
-                if (order != null && order.getItems() != null && !order.getItems().isEmpty()) {
-                    String productId = order.getItems().get(0).getMarketplaceProductId();
-                    response.setMarketplaceProductId(productId);
+            // Order 정보 설정
+            if (posting.getOrderId() != null) {
+                Order order = finalOrderMap.get(posting.getOrderId());
+                
+                if (order != null) {
+                    // bundleOrderId 설정
+                    if (order.getBundleOrderId() != null && !order.getBundleOrderId().isEmpty()) {
+                        response.setBundleOrderId(order.getBundleOrderId());
+                    }
+                    
+                    // marketplaceProductId 설정 (첫 번째 아이템에서)
+                    if (order.getItems() != null && !order.getItems().isEmpty()) {
+                        String productId = order.getItems().get(0).getMarketplaceProductId();
+                        response.setMarketplaceProductId(productId);
+                    }
                 }
-            } catch (Exception e) {
-                log.warn("[상품주문 ID 조회 실패] postingId={}, error={}", posting.getPostingId(), e.getMessage());
             }
             
             return response;
@@ -393,9 +445,28 @@ public class PostingService {
             throw new IllegalStateException(errorMsg);
         }
 
-        List<PostingResponse> createdPostings = new ArrayList<>();
+        // 3. 정산 완료 주문(COLLECTED)인 경우 통합 전표 생성 사용
+        if (order.getSettlementStatus() == com.sellsync.api.domain.order.enums.SettlementCollectionStatus.COLLECTED) {
+            log.info("[정산 완료 주문 - 통합 전표 생성 사용] orderId={}, bundleOrderId={}", 
+                orderId, order.getBundleOrderId());
+            
+            String bundleOrderId = order.getBundleOrderId() != null ? 
+                order.getBundleOrderId() : order.getMarketplaceOrderId();
+            
+            try {
+                PostingResponse posting = orderSettlementPostingService.createPostingsForSettledOrder(
+                    bundleOrderId, "ECOUNT"
+                );
+                return List.of(posting);
+            } catch (Exception e) {
+                log.error("[통합 전표 생성 실패 - 기본 방식으로 폴백] orderId={}, error={}", 
+                    orderId, e.getMessage(), e);
+                // 폴백: 기존 방식으로 계속 진행
+            }
+        }
 
-        // 3. 생성 모드에 따라 전표 생성
+        // 4. 일반 주문 또는 폴백: 기존 방식 사용
+        List<PostingResponse> createdPostings = new ArrayList<>();
         List<PostingType> typesToCreate = determinePostingTypes(request, order);
 
         for (PostingType type : typesToCreate) {

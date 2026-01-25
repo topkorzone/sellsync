@@ -30,7 +30,7 @@ public class ShipmentPushScheduler {
     /**
      * 대기 중인 송장 반영 (5분 주기)
      */
-    @Scheduled(cron = "0 */5 * * * *")
+    // @Scheduled(cron = "0 */5 * * * *")
     public void pushPendingShipments() {
         log.info("=== [ShipmentPushScheduler] 대기 송장 반영 시작 ===");
 

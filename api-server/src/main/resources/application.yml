@@ -11,6 +11,25 @@ spring:
       max-file-size: 10MB
       max-request-size: 10MB
   
+  # ============================================================
+  # HikariCP 커넥션 풀 최적화
+  # ============================================================
+  datasource:
+    hikari:
+      maximum-pool-size: 20          # 동시 연결 수 (기본값 10 → 20)
+      minimum-idle: 5                # 최소 유휴 연결
+      idle-timeout: 300000           # 유휴 연결 타임아웃 (5분)
+      max-lifetime: 1200000          # 연결 최대 수명 (20분)
+      connection-timeout: 30000      # 연결 획득 타임아웃 (30초)
+      leak-detection-threshold: 60000  # 연결 누수 감지 (1분)
+      
+      # PostgreSQL 최적화
+      data-source-properties:
+        prepStmtCacheSize: 250
+        prepStmtCacheSqlLimit: 2048
+        cachePrepStmts: true
+        useServerPrepStmts: true
+  
   jpa:
     open-in-view: false
     hibernate:
@@ -22,11 +41,15 @@ spring:
         use_sql_comments: false
         default_batch_fetch_size: 100
         jdbc:
-          batch_size: 3  # 배치 크기 최소화 (timeout 방지)
+          batch_size: 50  # 배치 크기 최소화 (timeout 방지)
           time_zone: Asia/Seoul  # ✅ 애플리케이션은 한국 시간, DB는 UTC로 Hibernate가 자동 변환
         order_inserts: true
         order_updates: true
         batch_versioned_data: true  # 배치 업데이트 최적화
+        # 최적화 추가
+        generate_statistics: false  # 프로덕션에서 비활성화
+        use_query_cache: true
+        use_second_level_cache: false  # 필요시 활성화
   
   flyway:
     enabled: true
@@ -110,8 +133,9 @@ ecount:
 scheduling:
   order-collection:
     enabled: true
-    cron: "0 0 0/1 * * *"  # 5분마다 (timeout 방지, 운영에서는 "0 0/30 * * * *" 사용)
-    # cron: "0 0/5 * * * *"  # 5분마다 (timeout 방지, 운영에서는 "0 0/30 * * * *" 사용)
+    cron: "0 0 * * * *"  # 매 1시간마다 (매 시 정각: 00:00, 01:00, 02:00, ...)
+    # cron: "0 0/10 * * * *"  # 매 10분마다 (테스트용)
+    # cron: "0 0/30 * * * *"  # 매 30분마다
 
 # 프론트엔드 URL (OAuth 콜백용)
 app:

@@ -53,8 +53,8 @@ public class Posting extends BaseEntity {
     @Column(name = "erp_code", nullable = false, length = 50)
     private String erpCode;
 
-    @NotNull
-    @Column(name = "order_id", nullable = false)
+    // ✅ nullable 허용: 정산 배치 전표(COMMISSION_EXPENSE, RECEIPT)는 특정 주문에 속하지 않음
+    @Column(name = "order_id", nullable = true)
     private UUID orderId;
 
     @NotNull

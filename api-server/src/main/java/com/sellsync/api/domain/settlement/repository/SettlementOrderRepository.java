@@ -69,6 +69,20 @@ public interface SettlementOrderRepository extends JpaRepository<SettlementOrder
     List<SettlementOrder> findByBundleOrderIdWithItems(@Param("bundleOrderId") String bundleOrderId);
 
     /**
+     * marketplaceOrderId로 정산 주문 조회 (상품 수수료 조회용)
+     * 
+     * 네이버 스마트스토어의 경우 같은 marketplaceOrderId로 여러 정산 레코드가 생성될 수 있음
+     * (order_id는 다르지만 marketplace_order_id는 동일)
+     * 
+     * @param marketplaceOrderId 마켓플레이스 주문 ID
+     * @return 정산 주문 목록 (items 포함)
+     */
+    @Query("SELECT DISTINCT so FROM SettlementOrder so " +
+           "LEFT JOIN FETCH so.items " +
+           "WHERE so.marketplaceOrderId = :marketplaceOrderId")
+    List<SettlementOrder> findByMarketplaceOrderIdWithItems(@Param("marketplaceOrderId") String marketplaceOrderId);
+
+    /**
      * 테넌트 + 마켓별 정산 주문 목록 조회
      */
     Page<SettlementOrder> findByTenantIdAndMarketplaceOrderByCreatedAtDesc(

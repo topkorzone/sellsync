@@ -194,7 +194,9 @@ public class PostingScheduler {
                                 order.getOrderId(), order.getMarketplaceOrderId());
                         continue;
                     }
-                    
+                    if(order.getBundleOrderId().equals("640813931282454")){
+                         System.out.println("debug");
+                    }
                     // 통합 전표 생성 (한 주문당 1개의 전표)
                     PostingResponse createdPosting = orderSettlementPostingService
                             .createPostingsForSettledOrder(order.getBundleOrderId(), erpCode);

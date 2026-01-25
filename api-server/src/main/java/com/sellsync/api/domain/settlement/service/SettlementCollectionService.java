@@ -46,6 +46,7 @@ public class SettlementCollectionService {
     private final SettlementOrderItemRepository settlementOrderItemRepository;
     private final OrderRepository orderRepository;
     private final ObjectMapper objectMapper;
+    private final com.sellsync.api.domain.settlement.service.SettlementService settlementService;
 
     /**
      * 정산 데이터 수집 및 벌크 처리 (메인 메서드)
@@ -119,10 +120,45 @@ public class SettlementCollectionService {
             tenantId, storeId, marketplace, elements, startDate, endDate
         );
         log.info("[정산 배치 처리 완료] count={}", batchMap.size());
+        
+        // ✅ 배치 상태 로그 출력 (디버깅용)
+        for (SettlementBatch batch : batchMap.values()) {
+            log.info("[정산 배치 상태 확인] settlementBatchId={}, status={}, cycle={}", 
+                    batch.getSettlementBatchId(), 
+                    batch.getSettlementStatus(), 
+                    batch.getSettlementCycle());
+        }
 
         // 5. SettlementOrder 벌크 UPSERT
         int createdOrders = bulkUpsertSettlementOrders(tenantId, marketplace, elements, orderMap, batchMap);
         log.info("[정산 주문 생성 완료] count={}", createdOrders);
+
+        // 6. 자동으로 VALIDATED 상태로 전환 (데이터 수집 완료 = 검증 완료로 간주)
+        // ✅ COLLECTED 상태인 배치만 VALIDATED로 전환 (이미 VALIDATED 상태면 스킵)
+        int validatedBatchCount = 0;
+        int alreadyValidatedCount = 0;
+        for (SettlementBatch batch : batchMap.values()) {
+            try {
+                if (batch.getSettlementStatus() == SettlementStatus.COLLECTED) {
+                    settlementService.markAsValidated(batch.getSettlementBatchId());
+                    validatedBatchCount++;
+                    log.info("[정산 배치 자동 검증 완료] settlementBatchId={}, status: COLLECTED → VALIDATED", 
+                            batch.getSettlementBatchId());
+                } else if (batch.getSettlementStatus() == SettlementStatus.VALIDATED) {
+                    alreadyValidatedCount++;
+                    log.info("[정산 배치 자동 검증 스킵] settlementBatchId={}, status: VALIDATED (이미 검증됨)", 
+                            batch.getSettlementBatchId());
+                } else {
+                    log.warn("[정산 배치 자동 검증 스킵] settlementBatchId={}, status: {} (예상치 못한 상태)", 
+                            batch.getSettlementBatchId(), batch.getSettlementStatus());
+                }
+            } catch (Exception e) {
+                log.warn("[정산 배치 자동 검증 실패] settlementBatchId={}, error={}", 
+                        batch.getSettlementBatchId(), e.getMessage());
+            }
+        }
+        log.info("[정산 배치 자동 검증 완료] 신규 검증: {}, 이미 검증됨: {}, 전체: {}", 
+                validatedBatchCount, alreadyValidatedCount, batchMap.size());
 
         return SettlementCollectionResult.builder()
                 .totalElements(elements.size())
@@ -137,13 +173,16 @@ public class SettlementCollectionService {
      * 주문 테이블에 정산 정보 벌크 업데이트
      * 
      * 주의: 한 주문에 대해 여러 element가 올 수 있음
-     * - productOrderType != "DELIVERY": 상품 주문 (상품 수수료) → marketplaceOrderId로 매칭
-     * - productOrderType = "DELIVERY": 배송비 (배송비 수수료) → bundleOrderId로 매칭
+     * - productOrderType != "DELIVERY": 상품 주문 (상품 수수료) → productOrderId로 매칭
+     * - productOrderType = "DELIVERY": 배송비 (배송비 수수료) → productOrderId로 매칭
      * 
-     * ⚠️ 정산 API 데이터 구조:
-     * - orderId: bundle_order_id (묶음 주문)
-     * - productOrderId: marketplace_order_id (개별 상품 주문)
-     * - DELIVERY 타입의 productOrderId는 주문 테이블에 없음 → orderId(bundleOrderId)로 매칭 필요
+     * ⚠️ 쿠팡 정산 API 데이터 구조:
+     * - orderId: 쿠팡 주문 번호
+     * - productOrderId: orderId_vendorItemId_index (주문 수집 시와 동일한 패턴)
+     * - 배송비 DELIVERY 타입: 첫 번째 상품과 동일한 productOrderId (orderId_vendorItemId_0)
+     * 
+     * ⚠️ 주의: orders 테이블의 bundleOrderId는 shipmentBoxId를 저장하고 있으나,
+     *          정산 API에는 shipmentBoxId가 없으므로 productOrderId로 매칭해야 함
      * 
      * ⚠️ 성능 최적화: timeout 방지를 위해 500건씩 청크로 나누어 처리
      */
@@ -172,73 +211,70 @@ public class SettlementCollectionService {
             productTypeCount++;
         }
         
-        // ========== 2. 배송비 수수료 처리 (DELIVERY 타입 - bundleOrderId로 매칭) ==========
+        // ========== 2. 배송비 수수료 처리 (DELIVERY 타입 - productOrderId 또는 orderId로 매칭) ==========
+        // ✅ 쿠팡: 배송비 정산 요소의 productOrderId는 첫 번째 상품과 동일 (orderId_vendorItemId_0)
+        // ✅ 스마트스토어: 배송비 정산 요소의 productOrderId가 실제 상품 주문 ID와 다를 수 있음
+        //                orderId(번들 주문 ID)로도 매칭 시도 필요
         List<DailySettlementElement> deliveryElements = elements.stream()
                 .filter(e -> "DELIVERY".equals(e.getProductOrderType()))
-                .filter(e -> e.getOrderId() != null)  // orderId = bundleOrderId
+                .filter(e -> e.getProductOrderId() != null || e.getOrderId() != null)
                 .toList();
         
-        // bundleOrderId로 주문 조회 (대표 주문 선택용)
-        List<String> bundleOrderIds = deliveryElements.stream()
-                .map(DailySettlementElement::getOrderId)
-                .distinct()
-                .toList();
+        // bundleOrderId로 주문 조회를 위한 맵 생성 (스마트스토어용)
+        Map<String, Order> orderByBundleIdMap = orderRepository
+                .findByStoreIdAndBundleOrderIdIn(
+                    storeId, 
+                    deliveryElements.stream()
+                        .map(DailySettlementElement::getOrderId)
+                        .filter(Objects::nonNull)
+                        .distinct()
+                        .toList()
+                )
+                .stream()
+                .collect(Collectors.toMap(Order::getBundleOrderId, o -> o, (o1, o2) -> o1));
         
-        Map<String, Order> bundleOrderMap = new java.util.HashMap<>();
-        if (!bundleOrderIds.isEmpty()) {
-            List<Order> bundleOrders = orderRepository.findByStoreIdAndBundleOrderIdIn(storeId, bundleOrderIds);
-            
-            // bundleOrderId별 대표 주문 (첫 번째 주문 또는 배송비가 있는 주문)
-            for (Order order : bundleOrders) {
-                String bundleId = order.getBundleOrderId();
-                if (!bundleOrderMap.containsKey(bundleId)) {
-                    bundleOrderMap.put(bundleId, order);
-                } else {
-                    // 배송비가 있는 주문을 우선 선택
-                    Order existing = bundleOrderMap.get(bundleId);
-                    if (existing.getTotalShippingAmount() == null || existing.getTotalShippingAmount() == 0) {
-                        if (order.getTotalShippingAmount() != null && order.getTotalShippingAmount() > 0) {
-                            bundleOrderMap.put(bundleId, order);
-                        }
-                    }
-                }
-            }
-        }
+        log.info("[배송비 수수료 처리] bundleOrderId로 조회된 주문: {} 건", orderByBundleIdMap.size());
         
-        // bundleOrderId별 배송비 수수료 집계
-        Map<String, Long> shippingCommissionByBundle = new java.util.HashMap<>();
+        // productOrderId 또는 orderId로 배송비 수수료 매핑
+        Map<String, OrderSettlementData> deliverySettlementMap = new java.util.HashMap<>();
         int deliveryTypeCount = 0;
         long totalShippingCommission = 0L;
         
         for (DailySettlementElement e : deliveryElements) {
-            String bundleOrderId = e.getOrderId();  // orderId = bundleOrderId
+            String productOrderId = e.getProductOrderId();
+            String bundleOrderId = e.getOrderId();
             long commission = e.getTotalCommission();
             
-            Long existing = shippingCommissionByBundle.get(bundleOrderId);
-            shippingCommissionByBundle.put(bundleOrderId, (existing != null ? existing : 0L) + commission);
-            deliveryTypeCount++;
-            totalShippingCommission += commission;
+            Order matchedOrder = null;
+            String matchKey = null;
             
-            log.debug("[정산 수집] 배송비 타입 발견 - bundleOrderId={}, commission={}, settleAmount={}", 
-                    bundleOrderId, commission, e.getCalculatedSettleAmount());
-        }
-        
-        // 대표 주문의 marketplaceOrderId로 배송비 수수료 매핑
-        Map<String, OrderSettlementData> deliverySettlementMap = new java.util.HashMap<>();
-        for (Map.Entry<String, Long> entry : shippingCommissionByBundle.entrySet()) {
-            String bundleOrderId = entry.getKey();
-            Long shippingCommission = entry.getValue();
+            // 1. productOrderId로 매칭 시도 (쿠팡 케이스)
+            if (productOrderId != null && orderMap.containsKey(productOrderId)) {
+                matchedOrder = orderMap.get(productOrderId);
+                matchKey = matchedOrder.getMarketplaceOrderId();
+                log.info("[배송비 수수료 매핑 성공 - productOrderId] productOrderId={}, commission={}", 
+                        productOrderId, commission);
+            }
+            // 2. bundleOrderId로 매칭 시도 (스마트스토어 케이스)
+            else if (bundleOrderId != null && orderByBundleIdMap.containsKey(bundleOrderId)) {
+                matchedOrder = orderByBundleIdMap.get(bundleOrderId);
+                matchKey = matchedOrder.getMarketplaceOrderId();
+                log.info("[배송비 수수료 매핑 성공 - bundleOrderId] bundleOrderId={}, productOrderId={}, commission={}", 
+                        bundleOrderId, productOrderId, commission);
+            }
+            // 3. 매칭 실패
+            else {
+                log.warn("[배송비 수수료 매칭 실패] productOrderId={}, bundleOrderId={}, commission={} (주문 테이블에 없음)", 
+                        productOrderId, bundleOrderId, commission);
+                continue;
+            }
             
-            Order representativeOrder = bundleOrderMap.get(bundleOrderId);
-            if (representativeOrder != null) {
-                String marketplaceOrderId = representativeOrder.getMarketplaceOrderId();
-                OrderSettlementData data = deliverySettlementMap.computeIfAbsent(marketplaceOrderId, k -> new OrderSettlementData());
-                data.shippingCommission = shippingCommission;
-                
-                log.info("[배송비 수수료 매핑] bundleOrderId={}, representativeOrderId={}, marketplaceOrderId={}, shippingCommission={}", 
-                        bundleOrderId, representativeOrder.getOrderId(), marketplaceOrderId, shippingCommission);
-            } else {
-                log.warn("[배송비 수수료 매칭 실패] bundleOrderId={}, 대표 주문을 찾을 수 없음", bundleOrderId);
+            // 매칭 성공 시 배송비 수수료 저장
+            if (matchedOrder != null && matchKey != null) {
+                OrderSettlementData data = deliverySettlementMap.computeIfAbsent(matchKey, k -> new OrderSettlementData());
+                data.shippingCommission = commission;
+                deliveryTypeCount++;
+                totalShippingCommission += commission;
             }
         }
         

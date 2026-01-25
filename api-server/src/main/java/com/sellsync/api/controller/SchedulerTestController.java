@@ -335,6 +335,41 @@ public class SchedulerTestController {
                 .build());
         }
     }
+    
+    /**
+     * 주문 수집 스케줄러 상태 확인
+     * GET /api/test/scheduler/order-collection/status
+     */
+    @GetMapping("/order-collection/status")
+    public ApiResponse<Map<String, Object>> getOrderCollectionStatus() {
+        Map<String, Object> status = new HashMap<>();
+        status.put("isRunning", orderCollectionScheduler.isCurrentlyRunning());
+        status.put("checkedAt", LocalDateTime.now());
+        
+        return ApiResponse.ok(status);
+    }
+    
+    /**
+     * 주문 수집 스케줄러 플래그 강제 리셋
+     * POST /api/test/scheduler/order-collection/reset
+     * 
+     * ⚠️ 주의: 실제로 실행 중인 작업이 있을 수 있으므로 신중하게 사용
+     */
+    @PostMapping("/order-collection/reset")
+    public ApiResponse<Map<String, Object>> resetOrderCollectionFlag() {
+        log.warn("[테스트] 주문 수집 스케줄러 플래그 강제 리셋 요청");
+        
+        boolean wasPreviouslyRunning = orderCollectionScheduler.isCurrentlyRunning();
+        orderCollectionScheduler.resetRunningFlag();
+        
+        Map<String, Object> result = new HashMap<>();
+        result.put("wasPreviouslyRunning", wasPreviouslyRunning);
+        result.put("currentlyRunning", orderCollectionScheduler.isCurrentlyRunning());
+        result.put("resetAt", LocalDateTime.now());
+        result.put("message", "플래그가 리셋되었습니다. 주의: 실제로 실행 중인 작업은 계속 실행될 수 있습니다.");
+        
+        return ApiResponse.ok(result);
+    }
 
     /**
      * 대기 송장 반영 스케줄러 실행

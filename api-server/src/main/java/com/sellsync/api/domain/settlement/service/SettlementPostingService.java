@@ -8,8 +8,8 @@ import com.sellsync.api.domain.settlement.entity.SettlementBatch;
 import com.sellsync.api.domain.settlement.entity.SettlementOrder;
 import com.sellsync.api.domain.settlement.exception.SettlementBatchNotFoundException;
 import com.sellsync.api.domain.settlement.repository.SettlementBatchRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,12 +29,21 @@ import java.util.UUID;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class SettlementPostingService {
 
     private final SettlementBatchRepository settlementBatchRepository;
     private final PostingService postingService;
     private final SettlementService settlementService;
+
+    // Constructor with @Lazy for circular dependency resolution
+    public SettlementPostingService(
+            SettlementBatchRepository settlementBatchRepository,
+            @Lazy PostingService postingService,
+            SettlementService settlementService) {
+        this.settlementBatchRepository = settlementBatchRepository;
+        this.postingService = postingService;
+        this.settlementService = settlementService;
+    }
 
     /**
      * 정산 배치에 대한 전표 생성 (수수료 + 수금)

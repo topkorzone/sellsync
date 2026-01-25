@@ -144,6 +144,8 @@ public class PostingCreationService {
     /**
      * OrderItem의 ProductMapping 확인
      * 
+     * mapping_status = MAPPED이고 isActive = true인 매핑만 유효하다고 판단
+     * 
      * @return 매핑되지 않은 상품 목록
      */
     private List<String> checkProductMappings(Order order) {
@@ -162,6 +164,8 @@ public class PostingCreationService {
                 String itemKey = String.format("%s:%s", 
                     item.getMarketplaceProductId(), item.getMarketplaceSku());
                 unmappedItems.add(itemKey);
+                log.warn("[상품 매핑 없음 또는 미완료] orderId={}, productId={}, sku={} - mapping_status가 MAPPED가 아니거나 존재하지 않음", 
+                    order.getOrderId(), item.getMarketplaceProductId(), item.getMarketplaceSku());
             }
         }
 

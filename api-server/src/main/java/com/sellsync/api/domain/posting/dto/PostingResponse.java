@@ -28,6 +28,7 @@ public class PostingResponse {
     private UUID orderId;
     private Marketplace marketplace;
     private String marketplaceOrderId;
+    private String bundleOrderId;  // 번들 주문 ID (Order에서 조회)
     private String marketplaceProductId; // 첫 번째 상품주문 ID
     private PostingType postingType;
     private PostingStatus postingStatus;
@@ -45,6 +46,16 @@ public class PostingResponse {
     // Setter for totalAmount (needed for amount calculation)
     public void setTotalAmount(Long totalAmount) {
         this.totalAmount = totalAmount;
+    }
+    
+    // Setter for bundleOrderId (needed for service layer)
+    public void setBundleOrderId(String bundleOrderId) {
+        this.bundleOrderId = bundleOrderId;
+    }
+    
+    // Setter for marketplaceProductId (needed for service layer)
+    public void setMarketplaceProductId(String marketplaceProductId) {
+        this.marketplaceProductId = marketplaceProductId;
     }
 
     /**

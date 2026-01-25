@@ -13,6 +13,7 @@ import com.sellsync.api.domain.order.entity.OrderItem;
 import com.sellsync.api.domain.order.enums.ItemStatus;
 import com.sellsync.api.domain.order.enums.Marketplace;
 import com.sellsync.api.domain.order.enums.OrderStatus;
+import com.sellsync.api.domain.order.enums.SettlementCollectionStatus;
 import com.sellsync.api.domain.order.repository.OrderRepository;
 import com.sellsync.api.domain.store.entity.Store;
 import com.sellsync.api.domain.store.repository.StoreRepository;
@@ -57,7 +58,7 @@ public class OrderCollectionService {
         private int failed;
     }
 
-    private static final int BATCH_SIZE = 1; // 배치 단위 (1개씩 처리, lock 경합 방지)
+    private static final int BATCH_SIZE = 50; // 배치 단위 (1개씩 처리, lock 경합 방지)
 
     /**
      * 주문 수집 실행 (배치 처리)
@@ -115,7 +116,7 @@ public class OrderCollectionService {
      * 배치 단위 주문 처리 (트랜잭션 분리)
      * 타임아웃: 60초 (배치당, BATCH_SIZE=1이므로 짧게 설정)
      */
-    @Transactional(timeout = 60)
+    @Transactional(timeout = 120)
     protected CollectionResult processBatch(UUID tenantId, UUID storeId, Marketplace marketplace, 
                                            List<MarketplaceOrderDto> batch) {
         int created = 0, updated = 0, failed = 0;
@@ -418,6 +419,11 @@ public class OrderCollectionService {
      * @param isNew 신규 주문 여부 (true=신규, false=업데이트)
      */
     private void mapOrderFields(Order order, MarketplaceOrderDto dto, boolean isNew) {
+        // 정산 완료 여부 확인
+        boolean isSettlementCompleted = order.getSettlementStatus() != null && 
+            (order.getSettlementStatus() == SettlementCollectionStatus.COLLECTED || 
+             order.getSettlementStatus() == SettlementCollectionStatus.POSTED);
+        
         // 핵심 필드만 항상 업데이트 (상태, 금액 등)
         order.setOrderStatus(OrderStatus.valueOf(dto.getOrderStatus()));
         order.setBundleOrderId(dto.getBundleOrderId());
@@ -443,8 +449,15 @@ public class OrderCollectionService {
         order.setTotalDiscountAmount(nullToZero(dto.getTotalDiscountAmount()));
         order.setTotalShippingAmount(nullToZero(dto.getTotalShippingAmount()));
         order.setTotalPaidAmount(nullToZero(dto.getTotalPaidAmount()));
-        order.setCommissionAmount(nullToZero(dto.getCommissionAmount()));
-        order.setExpectedSettlementAmount(nullToZero(dto.getExpectedSettlementAmount()));
+        
+        // 수수료 정보: 정산이 완료된 경우 업데이트하지 않음
+        if (!isSettlementCompleted) {
+            order.setCommissionAmount(nullToZero(dto.getCommissionAmount()));
+            order.setExpectedSettlementAmount(nullToZero(dto.getExpectedSettlementAmount()));
+        } else {
+            log.debug("[OrderCollection] 정산 완료된 주문 - 수수료 업데이트 제외: orderId={}, status={}", 
+                order.getOrderId(), order.getSettlementStatus());
+        }
         
         // 배송 정보
         order.setShippingFeeType(dto.getShippingFeeType());
@@ -464,8 +477,8 @@ public class OrderCollectionService {
             order.setRawPayload(dto.getRawPayload());
         }
 
-        // 주문 상품 처리
-        updateOrderItems(order, dto.getItems());
+        // 주문 상품 처리 (정산 완료 여부 전달)
+        updateOrderItems(order, dto.getItems(), isSettlementCompleted);
     }
 
     /**
@@ -475,8 +488,12 @@ public class OrderCollectionService {
      * 변경사항:
      * - 기존: line_no 기반 매칭 (마지막 상품만 저장되는 버그)
      * - 개선: marketplace_item_id 기반 매칭 (복수 상품 정상 처리)
+     * 
+     * @param order 주문 엔티티
+     * @param itemDtos 마켓플레이스 주문 상품 DTO 목록
+     * @param isSettlementCompleted 정산 완료 여부
      */
-    private void updateOrderItems(Order order, List<MarketplaceOrderItemDto> itemDtos) {
+    private void updateOrderItems(Order order, List<MarketplaceOrderItemDto> itemDtos, boolean isSettlementCompleted) {
         if (itemDtos == null || itemDtos.isEmpty()) return;
 
         // 기존 아이템 맵 (marketplace_item_id 기반)
@@ -513,7 +530,15 @@ public class OrderCollectionService {
             item.setOriginalPrice(nullToZero(dto.getOriginalPrice()));
             item.setDiscountAmount(nullToZero(dto.getDiscountAmount()));
             item.setLineAmount(nullToZero(dto.getLineAmount()));
-            item.setCommissionAmount(nullToZero(dto.getCommissionAmount()));
+            
+            // 수수료 정보: 정산이 완료된 경우 업데이트하지 않음
+            if (!isSettlementCompleted) {
+                item.setCommissionAmount(nullToZero(dto.getCommissionAmount()));
+            } else {
+                log.debug("[OrderCollection] 정산 완료된 주문상품 - 수수료 업데이트 제외: itemId={}", 
+                    item.getMarketplaceItemId());
+            }
+            
             item.setItemStatus(ItemStatus.NORMAL);
             
             // raw_payload는 크기가 매우 커서 UPDATE 시 타임아웃 유발

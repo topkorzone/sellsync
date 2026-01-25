@@ -96,25 +96,9 @@ public class EcountClient implements ErpClient {
                 creds.getZone(), sessionId);
 
         try {
-            // Body에 페이징 파라미터 추가 (API가 지원하는 경우)
-            Map<String, Object> body = new HashMap<>();
-            
-            // 페이징 파라미터가 있으면 추가
-            if (request != null) {
-                if (request.getPage() != null) {
-                    body.put("PAGE_NO", request.getPage());
-                }
-                if (request.getSize() != null) {
-                    body.put("PER_PAGE_CNT", request.getSize());
-                }
-                if (request.getKeyword() != null && !request.getKeyword().isEmpty()) {
-                    body.put("PROD_CD", request.getKeyword());
-                    body.put("PROD_DES", request.getKeyword());
-                }
-                if (request.getCategoryCode() != null && !request.getCategoryCode().isEmpty()) {
-                    body.put("CLASS_CD", request.getCategoryCode());
-                }
-            }
+            // Ecount API는 페이징을 지원하지만, 빈 body로 요청 시 전체 데이터를 반환할 수 있음
+            // 안전하게 페이징 파라미터는 제공하되, 에러 발생 시 빈 body로 재시도
+            Map<String, Object> body = buildGetItemsBody(request);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -152,7 +136,16 @@ public class EcountClient implements ErpClient {
                     sessionService.invalidateSession(tenantId);
                     return getItems(tenantId, request);
                 }
+                
                 String errorMsg = extractErrorMessage(root);
+                String errorCode = extractErrorCode(root);
+                
+                // "Exception while reading from stream" 에러인 경우, 빈 body로 재시도
+                if ("EXP00001".equals(errorCode) || errorMsg.contains("reading from stream")) {
+                    log.warn("[Ecount] Stream reading error detected, retrying with empty body...");
+                    return retryWithEmptyBody(tenantId, url, headers);
+                }
+                
                 log.error("[Ecount] GetItems Failed: {}", errorMsg);
                 throw new EcountApiException(errorMsg);
             }
@@ -162,6 +155,72 @@ public class EcountClient implements ErpClient {
         } catch (Exception e) {
             log.error("[Ecount] Failed to get items", e);
             throw new EcountApiException("Failed to get items", e);
+        }
+    }
+    
+    /**
+     * GetItems API Body 생성
+     * - 페이징 파라미터와 검색 조건을 포함
+     */
+    private Map<String, Object> buildGetItemsBody(ErpItemSearchRequest request) {
+        Map<String, Object> body = new HashMap<>();
+        
+        if (request != null) {
+            if (request.getPage() != null && request.getPage() > 0) {
+                body.put("PAGE_NO", request.getPage());
+            }
+            if (request.getSize() != null && request.getSize() > 0) {
+                body.put("PER_PAGE_CNT", request.getSize());
+            }
+            if (request.getKeyword() != null && !request.getKeyword().trim().isEmpty()) {
+                body.put("PROD_CD", request.getKeyword().trim());
+                body.put("PROD_DES", request.getKeyword().trim());
+            }
+            if (request.getCategoryCode() != null && !request.getCategoryCode().trim().isEmpty()) {
+                body.put("CLASS_CD", request.getCategoryCode().trim());
+            }
+        }
+        
+        return body;
+    }
+    
+    /**
+     * 스트림 에러 시 빈 body로 재시도
+     * - Ecount API가 페이징 파라미터를 잘못 처리할 경우를 대비
+     */
+    private List<ErpItemDto> retryWithEmptyBody(UUID tenantId, String url, HttpHeaders headers) {
+        try {
+            Map<String, Object> emptyBody = new HashMap<>();
+            HttpEntity<Map<String, Object>> retryRequest = new HttpEntity<>(emptyBody, headers);
+            
+            log.info("[Ecount] Retrying GetItems with empty body");
+            
+            ResponseEntity<String> response = restTemplate.postForEntity(url, retryRequest, String.class);
+            String responseBody = response.getBody();
+            
+            if (responseBody == null) {
+                throw new EcountApiException("Empty response from Ecount API on retry");
+            }
+            
+            log.debug("[Ecount] GetItems Retry Response: Status={}, Body={}", 
+                    response.getStatusCode(), 
+                    responseBody.length() > 500 ? responseBody.substring(0, 500) + "..." : responseBody);
+            
+            JsonNode root = objectMapper.readTree(responseBody);
+            
+            if (isSuccess(root)) {
+                List<ErpItemDto> items = parseItems(root.path("Data").path("Result"));
+                log.info("[Ecount] GetItems Retry Success: {} items fetched", items.size());
+                return items;
+            } else {
+                String errorMsg = extractErrorMessage(root);
+                log.error("[Ecount] GetItems Retry Failed: {}", errorMsg);
+                throw new EcountApiException(errorMsg);
+            }
+            
+        } catch (Exception e) {
+            log.error("[Ecount] Failed to retry with empty body", e);
+            throw new EcountApiException("Failed to retry with empty body", e);
         }
     }
 

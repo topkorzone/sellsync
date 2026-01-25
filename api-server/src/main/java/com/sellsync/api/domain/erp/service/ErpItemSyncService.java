@@ -191,7 +191,7 @@ public class ErpItemSyncService {
     /**
      * ERP에서 전체 품목 조회 (페이징 처리)
      * - 대량의 품목을 처리하기 위해 페이징 방식으로 조회
-     * - 빈 body로 요청 시 전체 품목을 반환하는 경우도 있지만, 안전하게 페이징 처리
+     * - 첫 페이지 실패 시 빈 body로 재시도 (전체 조회)
      */
     private List<ErpItemDto> fetchAllItems(UUID tenantId, ErpClient client) {
         log.info("[ErpItemSync] Fetching all items from ERP for tenant {}", tenantId);
@@ -200,6 +200,8 @@ public class ErpItemSyncService {
         int pageSize = 500;  // 페이지당 500개씩 조회
         int currentPage = 1;
         boolean hasMore = true;
+        int consecutiveErrors = 0;
+        int maxConsecutiveErrors = 3;  // 연속 3회 실패 시 중단
         
         while (hasMore) {
             log.info("[ErpItemSync] Fetching page {} (size: {})", currentPage, pageSize);
@@ -211,6 +213,9 @@ public class ErpItemSyncService {
             
             try {
                 List<ErpItemDto> pageItems = client.getItems(tenantId, request);
+                
+                // 성공 시 에러 카운터 초기화
+                consecutiveErrors = 0;
                 
                 if (pageItems.isEmpty()) {
                     log.info("[ErpItemSync] No more items found at page {}", currentPage);
@@ -230,12 +235,42 @@ public class ErpItemSyncService {
                     }
                 }
             } catch (Exception e) {
-                log.error("[ErpItemSync] Failed to fetch page {}: {}", currentPage, e.getMessage());
-                // 페이징이 지원되지 않는 API일 수 있으므로, 첫 페이지에서 실패하면 예외를 던짐
-                if (currentPage == 1) {
-                    throw e;
+                consecutiveErrors++;
+                log.error("[ErpItemSync] Failed to fetch page {} (attempt {}/{}): {}", 
+                        currentPage, consecutiveErrors, maxConsecutiveErrors, e.getMessage());
+                
+                // 첫 페이지 실패 시 빈 body로 전체 조회 시도
+                if (currentPage == 1 && consecutiveErrors == 1) {
+                    log.warn("[ErpItemSync] First page failed, trying to fetch all items without paging...");
+                    try {
+                        // 빈 request로 전체 조회
+                        ErpItemSearchRequest emptyRequest = ErpItemSearchRequest.builder().build();
+                        List<ErpItemDto> allItemsAtOnce = client.getItems(tenantId, emptyRequest);
+                        
+                        if (!allItemsAtOnce.isEmpty()) {
+                            log.info("[ErpItemSync] Successfully fetched {} items without paging", 
+                                    allItemsAtOnce.size());
+                            return allItemsAtOnce;
+                        }
+                    } catch (Exception retryError) {
+                        log.error("[ErpItemSync] Failed to fetch all items without paging: {}", 
+                                retryError.getMessage());
+                    }
+                    throw e; // 재시도도 실패하면 원래 예외를 던짐
+                }
+                
+                // 연속 실패 횟수가 임계값을 넘으면 중단
+                if (consecutiveErrors >= maxConsecutiveErrors) {
+                    log.error("[ErpItemSync] Too many consecutive errors ({}/{}), stopping sync", 
+                            consecutiveErrors, maxConsecutiveErrors);
+                    if (allItems.isEmpty()) {
+                        throw e; // 아무것도 가져오지 못했으면 예외를 던짐
+                    } else {
+                        log.warn("[ErpItemSync] Returning {} items fetched so far", allItems.size());
+                        hasMore = false;
+                    }
                 } else {
-                    // 중간 페이지에서 실패하면 지금까지 가져온 데이터를 반환
+                    // 중간 페이지 실패 시 지금까지 가져온 데이터를 반환
                     log.warn("[ErpItemSync] Stopping at page {} due to error. Total fetched: {}", 
                             currentPage, allItems.size());
                     hasMore = false;

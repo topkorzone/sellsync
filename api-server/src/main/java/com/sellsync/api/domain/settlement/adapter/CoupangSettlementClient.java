@@ -119,12 +119,31 @@ public class CoupangSettlementClient implements MarketplaceSettlementClient {
         // ✅ items 배열의 각 아이템마다 index를 추가하여 고유하게 식별
         List<DailySettlementElement> allElements = new ArrayList<>();
         for (CoupangSettlementOrder order : allOrders) {
-            if (order.getItems() != null) {
+            // 1. 상품 아이템 변환
+            if (order.getItems() != null && !order.getItems().isEmpty()) {
                 int index = 0;
                 for (CoupangSettlementItem item : order.getItems()) {
                     DailySettlementElement element = convertToSettlementElement(order, item, index);
                     allElements.add(element);
                     index++;
+                }
+                
+                // 2. 배송비 정보 변환 (deliveryFee가 있고 수수료가 0보다 큰 경우)
+                // ✅ 배송비는 첫 번째 상품의 productOrderId (orderId_vendorItemId_0)에 할당
+                if (order.getDeliveryFee() != null) {
+                    CoupangSettlementDeliveryFee deliveryFee = order.getDeliveryFee();
+                    long totalFee = (deliveryFee.getFee() != null ? deliveryFee.getFee() : 0L) +
+                                   (deliveryFee.getFeeVat() != null ? deliveryFee.getFeeVat() : 0L);
+                    
+                    if (totalFee > 0) {
+                        // 첫 번째 상품 아이템 가져오기
+                        CoupangSettlementItem firstItem = order.getItems().get(0);
+                        DailySettlementElement deliveryElement = convertDeliveryFeeToSettlementElement(order, firstItem);
+                        allElements.add(deliveryElement);
+                        
+                        log.debug("[Coupang Settlement] 배송비 수수료 추가 - orderId={}, vendorItemId={}, fee={}, feeVat={}, total={}", 
+                                order.getOrderId(), firstItem.getVendorItemId(), deliveryFee.getFee(), deliveryFee.getFeeVat(), totalFee);
+                    }
                 }
             }
         }
@@ -467,6 +486,60 @@ public class CoupangSettlementClient implements MarketplaceSettlementClient {
                 .benefitSettleAmount(0L)
                 .settleExpectAmount(item.getSettlementAmount() != null ? item.getSettlementAmount() : 0L)
                 .shippingSettleAmount(0L) // 배송비는 주문 레벨에서 별도 처리
+                .build();
+    }
+    
+    /**
+     * 쿠팡 배송비 정보를 정산 요소로 변환
+     * 
+     * ✅ 주의: orders 테이블의 bundleOrderId는 shipmentBoxId를 저장하고 있으나,
+     *          정산 API에는 shipmentBoxId가 없으므로 매칭 불가
+     * ✅ 해결: 배송비를 첫 번째 상품의 productOrderId (orderId_vendorItemId_0)에 할당
+     * 
+     * @param order 쿠팡 정산 주문
+     * @param firstItem 첫 번째 상품 아이템 (productOrderId 생성용)
+     * @return 배송비 정산 요소 (DailySettlementElement)
+     */
+    private DailySettlementElement convertDeliveryFeeToSettlementElement(CoupangSettlementOrder order, 
+                                                                          CoupangSettlementItem firstItem) {
+        CoupangSettlementDeliveryFee deliveryFee = order.getDeliveryFee();
+        
+        // 쿠팡은 saleType에 따라 정산 유형 결정
+        String settleType = "SALE".equals(order.getSaleType()) ? "NORMAL" : 
+                           "CANCEL".equals(order.getSaleType()) ? "CANCEL" : 
+                           "RETURN".equals(order.getSaleType()) ? "RETURN" : "NORMAL";
+        
+        // 배송비 수수료 계산 (fee + feeVat)
+        long deliveryCommission = (deliveryFee.getFee() != null ? deliveryFee.getFee() : 0L) +
+                                 (deliveryFee.getFeeVat() != null ? deliveryFee.getFeeVat() : 0L);
+        
+        // 배송비 정산 금액
+        long deliverySettlement = deliveryFee.getSettlementAmount() != null ? deliveryFee.getSettlementAmount() : 0L;
+        
+        // 배송비 금액
+        long deliveryAmount = deliveryFee.getAmount() != null ? deliveryFee.getAmount() : 0L;
+        
+        // ✅ 배송비는 첫 번째 상품의 productOrderId (orderId_vendorItemId_0)에 매핑
+        String productOrderId = String.valueOf(order.getOrderId()) + "_" + firstItem.getVendorItemId() + "_0";
+        
+        return DailySettlementElement.builder()
+                .orderId(String.valueOf(order.getOrderId()))  // 정산 API의 orderId
+                .productOrderId(productOrderId)  // ✅ 첫 번째 상품과 동일한 패턴 (orderId_vendorItemId_0)
+                .productOrderType("DELIVERY")  // 배송비 타입
+                .settleType(settleType)
+                .productId("DELIVERY")
+                .productName("배송비")
+                .payDate(order.getSaleDate())
+                .settleBasisStartDate(order.getRecognitionDate())
+                .settleBasisEndDate(order.getRecognitionDate())
+                .settleExpectDate(order.getSettlementDate())
+                .paySettleAmount(deliveryAmount)  // 배송비 금액
+                .totalPayCommissionAmount(deliveryCommission)  // 배송비 수수료 (fee + feeVat)
+                .freeInstallmentCommissionAmount(0L)
+                .sellingInterlockCommissionAmount(0L)
+                .benefitSettleAmount(0L)
+                .settleExpectAmount(deliverySettlement)  // 배송비 정산 금액
+                .shippingSettleAmount(deliverySettlement)  // 배송비 정산 금액
                 .build();
     }
     

@@ -76,7 +76,7 @@ public class CoupangOrderClient implements MarketplaceOrderClient {
      */
     private List<MarketplaceOrderDto> fetchOrdersByStatus(
             CoupangCredentials creds, LocalDateTime from, LocalDateTime to, String status) {
-        from = to.minusMonths(1);
+        // from = to.minusMonths(1);
         List<MarketplaceOrderDto> allOrders = new ArrayList<>();
         String nextToken = null;
         int pageCount = 0;
@@ -226,7 +226,7 @@ public class CoupangOrderClient implements MarketplaceOrderClient {
         int index = 0;
         for (JsonNode itemNode : itemsNode) {
             long vendorItemId = itemNode.path("vendorItemId").asLong();
-            
+            long productId = itemNode.path("productId").asLong();
             // marketplaceItemId는 아이템 식별용으로만 사용
             String marketplaceItemId = String.valueOf(vendorItemId);
             
@@ -237,7 +237,7 @@ public class CoupangOrderClient implements MarketplaceOrderClient {
             // 아이템 DTO 생성
             MarketplaceOrderItemDto item = MarketplaceOrderItemDto.builder()
                     .marketplaceItemId(marketplaceItemId)
-                    .marketplaceProductId(String.valueOf(vendorItemId))
+                    .marketplaceProductId(String.valueOf(productId))
                     .marketplaceSku(String.valueOf(vendorItemId))
                     .productName(itemNode.path("vendorItemName").asText(""))
                     .exposedProductName(itemNode.path("sellerProductName").asText(null))
@@ -269,6 +269,7 @@ public class CoupangOrderClient implements MarketplaceOrderClient {
                     .safeNumber(orderNode.path("receiver").path("safeNumber").asText(null))
                     // 금액 (개별 아이템 금액)
                     .totalPaidAmount(orderPrice)
+                    .totalProductAmount(orderPrice)
                     // 배송비 (쿠팡은 price 객체 형태로 제공)
                     .shippingFee(orderNode.path("shippingPrice").asLong(0))
                     .additionalShippingFee(extractPrice(orderNode.path("remotePrice")))
@@ -302,6 +303,7 @@ public class CoupangOrderClient implements MarketplaceOrderClient {
             for (JsonNode item : itemsNode) {
                 // vendorItemId를 기본으로 사용하되, 동일 주문 내 동일 상품 중복 시 인덱스 추가
                 long vendorItemId = item.path("vendorItemId").asLong();
+                long productId = item.path("productId").asLong();
                 String marketplaceItemId = String.valueOf(vendorItemId);
                 
                 // 만약 API 응답에 orderItemId나 shipmentBoxItemId 같은 필드가 있다면 그것을 사용
@@ -321,7 +323,7 @@ public class CoupangOrderClient implements MarketplaceOrderClient {
                 
                 items.add(MarketplaceOrderItemDto.builder()
                         .marketplaceItemId(marketplaceItemId)  // ✅ 쿠팡 상품라인 고유ID
-                        .marketplaceProductId(String.valueOf(vendorItemId))
+                        .marketplaceProductId(String.valueOf(productId))
                         .marketplaceSku(String.valueOf(vendorItemId))
                         .productName(item.path("vendorItemName").asText(""))
                         .exposedProductName(item.path("sellerProductName").asText(null))

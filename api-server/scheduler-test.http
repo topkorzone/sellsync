@@ -184,6 +184,30 @@ POST {{baseUrl}}/posting/ready
 
 
 ### ============================================
+### 10. 디버깅용 API
+### ============================================
+
+### 10.1 주문 수집 스케줄러 상태 확인
+GET {{baseUrl}}/order-collection/status
+
+### 10.2 주문 수집 스케줄러 플래그 강제 리셋
+### ⚠️ 주의: 실제로 실행 중인 작업이 있을 수 있으므로 신중하게 사용
+POST {{baseUrl}}/order-collection/reset
+
+### 10.3 특정 주문 상세 조회 (금액 확인용)
+GET http://localhost:8080/api/orders/3e6cebb2-a345-48ca-9912-d4cada5b7a83
+Authorization: Bearer {{accessToken}}
+
+### 10.4 특정 전표 상세 조회 (페이로드 확인용)
+GET http://localhost:8080/api/erp/documents/3a9687a1-5879-4df1-81d6-b22ce864f171
+Authorization: Bearer {{accessToken}}
+
+### 10.5 활성 템플릿 목록 조회
+GET http://localhost:8080/api/settings/templates?erpCode=ECOUNT&postingType=PRODUCT_SALES
+Authorization: Bearer {{accessToken}}
+
+
+### ============================================
 ### 9. 빠른 테스트 (자주 사용하는 스케줄러)
 ### ============================================
 

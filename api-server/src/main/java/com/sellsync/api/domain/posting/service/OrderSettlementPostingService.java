@@ -19,8 +19,8 @@ import com.sellsync.api.domain.mapping.dto.ProductMappingResponse;
 import com.sellsync.api.domain.settlement.entity.SettlementOrder;
 import com.sellsync.api.domain.settlement.entity.SettlementOrderItem;
 import com.sellsync.api.domain.settlement.repository.SettlementOrderRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,7 +42,6 @@ import java.util.*;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class OrderSettlementPostingService {
 
     private final OrderRepository orderRepository;
@@ -55,6 +54,26 @@ public class OrderSettlementPostingService {
     private final TemplateBasedPostingBuilder templateBasedPostingBuilder;
 
     private static final DateTimeFormatter IO_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
+
+    // Constructor with @Lazy for circular dependency resolution
+    public OrderSettlementPostingService(
+            OrderRepository orderRepository,
+            @Lazy PostingService postingService,
+            ErpConfigRepository erpConfigRepository,
+            ErpItemRepository erpItemRepository,
+            StoreRepository storeRepository,
+            ProductMappingService productMappingService,
+            SettlementOrderRepository settlementOrderRepository,
+            TemplateBasedPostingBuilder templateBasedPostingBuilder) {
+        this.orderRepository = orderRepository;
+        this.postingService = postingService;
+        this.erpConfigRepository = erpConfigRepository;
+        this.erpItemRepository = erpItemRepository;
+        this.storeRepository = storeRepository;
+        this.productMappingService = productMappingService;
+        this.settlementOrderRepository = settlementOrderRepository;
+        this.templateBasedPostingBuilder = templateBasedPostingBuilder;
+    }
 
     /**
      * 정산 수집된 주문에 대한 전표 생성 (한 셋트로 통합)
@@ -441,23 +460,27 @@ public class OrderSettlementPostingService {
 
     /**
      * 정산 테이블에서 상품 수수료 조회
-     * settlement_type = 'SALES' 또는 'COMMISSION'인 레코드의 commission_amount
      * 
-     * 주의: 중복 방지를 위해 첫 번째 레코드만 사용
+     * ⚠️ 중요: marketplaceOrderId 기준으로 조회
+     * 같은 marketplaceOrderId로 여러 정산 레코드가 있을 수 있으므로
+     * orderId가 아닌 marketplaceOrderId로 조회해야 함
      * 
      * @param order 주문 엔티티
      * @return 상품 수수료 (없으면 null)
      */
     private Long getProductCommissionFromSettlement(Order order) {
         try {
-            // 정산 데이터 조회
+            // ✅ marketplaceOrderId로 정산 데이터 조회 (orderId 대신)
             List<SettlementOrder> settlements = settlementOrderRepository
-                .findByOrderId(order.getOrderId());
+                .findByMarketplaceOrderIdWithItems(order.getMarketplaceOrderId());
             
             if (settlements.isEmpty()) {
-                log.debug("[정산 데이터 없음] orderId={}", order.getOrderId());
+                log.debug("[정산 데이터 없음] marketplaceOrderId={}", order.getMarketplaceOrderId());
                 return null;
             }
+            
+            log.debug("[정산 데이터 조회 완료] marketplaceOrderId={}, 정산건수={}", 
+                order.getMarketplaceOrderId(), settlements.size());
             
             // 상품(DELIVERY가 아닌) 타입의 items만 필터링하여 수수료 합산
             BigDecimal commission = settlements.stream()
@@ -467,23 +490,24 @@ public class OrderSettlementPostingService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
             
             if (commission == null || commission.compareTo(BigDecimal.ZERO) == 0) {
-                log.debug("[상품 수수료 0원] orderId={}, commission={}", order.getOrderId(), commission);
+                log.debug("[상품 수수료 0원] marketplaceOrderId={}, commission={}", 
+                    order.getMarketplaceOrderId(), commission);
                 return null;
             }
             
             // 음수 값 검증 (상품 수수료는 마이너스여야 함)
             if (commission.compareTo(BigDecimal.ZERO) > 0) {
-                log.warn("[상품 수수료 양수 값 발견] orderId={}, commission={} - 음수로 변환하지 않음 (데이터 확인 필요)", 
-                    order.getOrderId(), commission);
+                log.warn("[상품 수수료 양수 값 발견] marketplaceOrderId={}, commission={} - 음수로 변환하지 않음 (데이터 확인 필요)", 
+                    order.getMarketplaceOrderId(), commission);
             }
             
             long commissionValue = Math.abs(commission.longValue()); // 절대값으로 변환 (createCommissionBulkData에서 다시 음수로 만듦)
-            log.info("[상품 수수료 조회 성공] orderId={}, commission={}", 
-                order.getOrderId(), commissionValue);
+            log.info("[상품 수수료 조회 성공] marketplaceOrderId={}, commission={}", 
+                order.getMarketplaceOrderId(), commissionValue);
             
             return commissionValue;
         } catch (Exception e) {
-            log.error("[상품 수수료 조회 실패] orderId={}", order.getOrderId(), e);
+            log.error("[상품 수수료 조회 실패] marketplaceOrderId={}", order.getMarketplaceOrderId(), e);
             return null;
         }
     }
@@ -578,6 +602,8 @@ public class OrderSettlementPostingService {
     /**
      * OrderItem의 ProductMapping 확인
      * 
+     * mapping_status = MAPPED이고 isActive = true인 매핑만 유효하다고 판단
+     * 
      * @param order 주문 엔티티
      * @return 매핑되지 않은 상품 목록 (productId:sku 형식)
      */
@@ -602,7 +628,7 @@ public class OrderSettlementPostingService {
                 String itemKey = String.format("%s:%s", 
                     item.getMarketplaceProductId(), item.getMarketplaceSku());
                 unmappedItems.add(itemKey);
-                log.warn("[상품 매핑 없음] orderId={}, productId={}, sku={}", 
+                log.warn("[상품 매핑 없음 또는 미완료] orderId={}, productId={}, sku={} - mapping_status가 MAPPED가 아니거나 존재하지 않음", 
                     order.getOrderId(), item.getMarketplaceProductId(), item.getMarketplaceSku());
             }
         }

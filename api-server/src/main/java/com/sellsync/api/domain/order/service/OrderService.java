@@ -368,7 +368,17 @@ public class OrderService {
                     .findByOrderId(order.getOrderId());
             
             if (settlements.isEmpty()) {
-                return 0L;
+                // 정산 데이터가 없으면 Order 엔티티의 expectedSettlementAmount 사용
+                if (order.getExpectedSettlementAmount() != null && order.getExpectedSettlementAmount() > 0) {
+                    return order.getExpectedSettlementAmount();
+                }
+                
+                // expectedSettlementAmount도 없으면 주문 금액 - 수수료로 예상 정산 금액 계산
+                Long totalPaidAmount = order.getTotalPaidAmount() != null ? order.getTotalPaidAmount() : 0L;
+                Long commissionAmount = order.getCommissionAmount() != null ? order.getCommissionAmount() : 0L;
+                Long estimatedSettlement = totalPaidAmount - commissionAmount;
+                
+                return estimatedSettlement > 0 ? estimatedSettlement : 0L;
             }
             
             // 여러 개가 있을 경우 합산 (일반적으로는 1개만 있어야 함)
