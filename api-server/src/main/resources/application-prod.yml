@@ -42,6 +42,10 @@ scheduling:
     enabled: true
     cron: "0 0 * * * *"  # 운영 기본: 1시간마다(정각)
 
+scheduler:
+  test:
+    enabled: true
+
 logging:
   level:
     root: INFO
