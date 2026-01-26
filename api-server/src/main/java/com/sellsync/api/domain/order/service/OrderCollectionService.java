@@ -571,8 +571,10 @@ public class OrderCollectionService {
             return;
         }
         
-        // 1. 모든 주문의 상품 아이템에서 매핑 요청 수집
-        List<ProductMappingRequest> requests = new ArrayList<>();
+        // 1. 모든 주문의 상품 아이템에서 매핑 요청 수집 (중복 제거)
+        // 같은 배치 내 여러 주문이 동일한 상품을 포함할 수 있으므로
+        // (tenantId, storeId, marketplace, productId, sku) 조합으로 중복 제거
+        Map<String, ProductMappingRequest> uniqueRequests = new HashMap<>();
         
         for (Order order : orders) {
             if (order.getItems() == null || order.getItems().isEmpty()) {
@@ -580,6 +582,19 @@ public class OrderCollectionService {
             }
             
             for (OrderItem item : order.getItems()) {
+                // 중복 제거를 위한 유니크 키 생성
+                String key = String.format("%s_%s_%s_%s_%s",
+                        order.getTenantId(),
+                        order.getStoreId(),
+                        order.getMarketplace(),
+                        item.getMarketplaceProductId(),
+                        item.getMarketplaceSku());
+                
+                // 이미 동일한 매핑이 존재하면 스킵
+                if (uniqueRequests.containsKey(key)) {
+                    continue;
+                }
+                
                 ProductMappingRequest request = ProductMappingRequest.builder()
                         .tenantId(order.getTenantId())
                         .storeId(order.getStoreId())
@@ -592,18 +607,19 @@ public class OrderCollectionService {
                         .isActive(true)
                         .build();
                 
-                requests.add(request);
+                uniqueRequests.put(key, request);
             }
         }
         
-        if (requests.isEmpty()) {
+        if (uniqueRequests.isEmpty()) {
             return;
         }
         
-        // 2. 벌크 생성/조회
+        // 2. 벌크 생성/조회 (중복 제거된 요청 목록)
+        List<ProductMappingRequest> requests = new ArrayList<>(uniqueRequests.values());
         List<ProductMappingResponse> responses = productMappingService.bulkCreateOrGet(requests);
         
-        log.info("[매핑 레코드 벌크 생성] 주문 {}개, 상품 매핑 {}개 처리", 
+        log.info("[매핑 레코드 벌크 생성] 주문 {}개, 유니크 상품 매핑 {}개 처리 (중복 제거 적용)", 
                 orders.size(), responses.size());
     }
     

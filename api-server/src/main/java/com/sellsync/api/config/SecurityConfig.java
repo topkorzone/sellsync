@@ -107,7 +107,9 @@ public class SecurityConfig {
         configuration.setAllowedOrigins(List.of(
                 "http://localhost:3000",
                 "http://localhost:3001",
-                "https://sellsync-teal.vercel.app"
+                "https://sellsync-teal.vercel.app",
+                "https://sell-sync.biz",
+                "https://www.sell-sync.biz"
         ));
         
         // 허용할 HTTP 메소드
