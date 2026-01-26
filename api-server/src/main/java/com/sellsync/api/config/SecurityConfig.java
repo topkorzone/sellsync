@@ -6,6 +6,7 @@ import com.sellsync.api.security.jwt.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -54,6 +55,8 @@ public class SecurityConfig {
                 
                 // URL별 권한 설정
                 .authorizeHttpRequests(auth -> auth
+                        // OPTIONS 요청 허용 (CORS Preflight)
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         // 인증 없이 접근 가능
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
