@@ -12,10 +12,18 @@
 # ============================================
 # Environment & Local Config
 # ============================================
+# Spring Boot config files
 **/application-local.yml
 **/application-local.yaml
 **/application-dev.yml
 **/application-dev.yaml
+
+# Environment files (Node.js/Next.js)
+**/.env
+**/.env.local
+**/.env.development.local
+**/.env.test.local
+**/.env.production.local
 
 # ============================================
 # Archives & Compressed Files

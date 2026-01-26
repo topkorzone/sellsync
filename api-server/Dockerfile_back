@@ -1,0 +1,20 @@
+# ---- build stage ----
+    FROM gradle:8.7-jdk17 AS build
+    WORKDIR /workspace
+    
+    # 전체 레포를 복사해야 멀티모듈/공통 설정을 읽을 수 있습니다.
+    COPY . .
+    
+    # api-server 모듈 bootJar 생성
+    RUN gradle :api-server:clean :api-server:bootJar -x test
+    
+    # ---- run stage ----
+    FROM eclipse-temurin:17-jre
+    WORKDIR /app
+    
+    # api-server 빌드 산출물 복사
+    COPY --from=build /workspace/api-server/build/libs/*.jar app.jar
+    
+    EXPOSE 8080
+    ENTRYPOINT ["java","-jar","/app/app.jar"]
+    

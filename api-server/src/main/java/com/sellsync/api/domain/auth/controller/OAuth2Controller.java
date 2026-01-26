@@ -68,7 +68,7 @@ public class OAuth2Controller {
         
         String authUrl = "https://accounts.google.com/o/oauth2/v2/auth"
                 + "?client_id=" + googleClientId
-                + "&redirect_uri=" + URLEncoder.encode(googleRedirectUri, StandardCharsets.UTF_8)
+                + "&redirect_uri=" + googleRedirectUri
                 + "&response_type=code"
                 + "&scope=" + URLEncoder.encode("email profile", StandardCharsets.UTF_8)
                 + "&access_type=offline"
