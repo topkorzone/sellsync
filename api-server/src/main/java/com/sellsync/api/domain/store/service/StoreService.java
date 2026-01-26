@@ -1,5 +1,6 @@
 package com.sellsync.api.domain.store.service;
 
+import com.sellsync.api.domain.credential.repository.CredentialRepository;
 import com.sellsync.api.domain.order.enums.Marketplace;
 import com.sellsync.api.domain.store.dto.CreateStoreRequest;
 import com.sellsync.api.domain.store.dto.UpdateStoreRequest;
@@ -24,6 +25,7 @@ import java.util.stream.Collectors;
 public class StoreService {
 
     private final StoreRepository storeRepository;
+    private final CredentialRepository credentialRepository;
 
     /**
      * 스토어 목록 조회 (tenant 기준)
@@ -197,6 +199,11 @@ public class StoreService {
 
     /**
      * 스토어 삭제
+     * 
+     * 주의: 외래 키 제약 조건을 만족하기 위해 연관된 데이터를 먼저 삭제합니다.
+     * 삭제 순서:
+     * 1. credentials (인증 정보)
+     * 2. stores (스토어)
      */
     @Transactional
     public void deleteStore(UUID storeId) {
@@ -206,6 +213,16 @@ public class StoreService {
             throw new IllegalArgumentException("Store not found: " + storeId);
         }
 
+        // 1. 연관된 인증 정보 먼저 삭제
+        try {
+            credentialRepository.deleteByStoreId(storeId);
+            log.info("[StoreService] Deleted credentials for store: storeId={}", storeId);
+        } catch (Exception e) {
+            log.warn("[StoreService] Failed to delete credentials (may not exist): storeId={}, error={}", 
+                    storeId, e.getMessage());
+        }
+
+        // 2. 스토어 삭제
         storeRepository.deleteById(storeId);
         log.info("[StoreService] Store deleted: storeId={}", storeId);
     }

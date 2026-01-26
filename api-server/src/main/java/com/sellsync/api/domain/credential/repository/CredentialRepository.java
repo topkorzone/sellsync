@@ -12,4 +12,9 @@ public interface CredentialRepository extends JpaRepository<Credential, UUID> {
 
     Optional<Credential> findByTenantIdAndStoreIdAndCredentialTypeAndKeyName(
             UUID tenantId, UUID storeId, String credentialType, String keyName);
+    
+    /**
+     * 특정 스토어의 모든 인증 정보 삭제
+     */
+    void deleteByStoreId(UUID storeId);
 }
