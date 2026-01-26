@@ -49,13 +49,13 @@ export default function TemplateDetailPage() {
       try {
         // 필드 정의 로드 (비개발자용 드롭다운 데이터)
         const fieldDefsResponse = await templatesApi.getFieldDefinitions();
-        if (fieldDefsResponse.ok) {
+        if (fieldDefsResponse.ok && fieldDefsResponse.data) {
           setFieldDefinitions(fieldDefsResponse.data);
         }
         
         // 이카운트 필드 목록 로드 (모든 필드)
         const ecountFieldsResponse = await templatesApi.getECountFields();
-        if (ecountFieldsResponse.ok) {
+        if (ecountFieldsResponse.ok && ecountFieldsResponse.data) {
           setEcountFields(ecountFieldsResponse.data);
         }
       } catch (error) {

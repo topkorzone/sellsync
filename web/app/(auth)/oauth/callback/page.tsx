@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { authApi } from '@/lib/api';
 
-export default function OAuthCallbackPage() {
+function OAuthCallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { setAuth } = useAuthStore();
@@ -71,5 +71,20 @@ export default function OAuthCallbackPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function OAuthCallbackPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
+        <div className="text-center space-y-4">
+          <Loader2 className="h-12 w-12 animate-spin text-gray-900 mx-auto" />
+          <p className="text-gray-600">로그인 처리 중...</p>
+        </div>
+      </div>
+    }>
+      <OAuthCallbackContent />
+    </Suspense>
   );
 }

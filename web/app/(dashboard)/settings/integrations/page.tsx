@@ -392,8 +392,8 @@ export default function IntegrationsPage() {
 
     const credential = {
       tenantId: user?.tenantId || '',
-      storeId: null,
-      credentialType: 'ERP',
+      storeId: undefined,
+      credentialType: 'ERP' as const,
       keyName: 'ECOUNT_CONFIG',
       secretValue: JSON.stringify(ecountConfig),
       description: '이카운트 ERP 연동 설정',

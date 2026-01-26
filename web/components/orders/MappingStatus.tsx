@@ -1,5 +1,5 @@
 interface MappingStatusProps {
-  status: 'MAPPED' | 'PARTIAL' | 'UNMAPPED' | null;
+  status: 'MAPPED' | 'PARTIAL' | 'UNMAPPED' | null | undefined;
 }
 
 export function MappingStatus({ status }: MappingStatusProps) {

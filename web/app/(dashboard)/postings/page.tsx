@@ -34,7 +34,7 @@ export default function PostingsPage() {
   const sendBatchMutation = useMutation({
     mutationFn: (postingIds: string[]) => postingsApi.sendBatch(postingIds),
     onSuccess: (data) => {
-      const { success, failed, total } = data.data;
+      const { success, failed, total } = data.data || { success: 0, failed: 0, total: 0 };
       toast.success(`전송 완료! 성공: ${success}건, 실패: ${failed}건, 총: ${total}건`);
       setSelectedIds([]);
       queryClient.invalidateQueries({ queryKey: ['postings'] });
@@ -48,7 +48,7 @@ export default function PostingsPage() {
   const deleteBatchMutation = useMutation({
     mutationFn: (postingIds: string[]) => postingsApi.deleteBatch(postingIds),
     onSuccess: (data) => {
-      const { success, failed, total } = data.data;
+      const { success, failed, total } = data.data || { success: 0, failed: 0, total: 0 };
       toast.success(`삭제 완료! 성공: ${success}건, 실패: ${failed}건, 총: ${total}건`);
       setSelectedIds([]);
       queryClient.invalidateQueries({ queryKey: ['postings'] });
@@ -70,7 +70,6 @@ export default function PostingsPage() {
   // 전체 선택/해제 (READY, FAILED, READY_TO_POST 상태만)
   const handleToggleAll = () => {
     const selectablePostings = postings.filter(p => 
-      p.postingStatus === 'READY' || 
       p.postingStatus === 'FAILED' || 
       p.postingStatus === 'READY_TO_POST'
     );
@@ -183,7 +182,6 @@ export default function PostingsPage() {
                   <TableHead className="bg-slate-100 w-[50px]">
                     <Checkbox
                       checked={selectedIds.length > 0 && selectedIds.length === postings.filter(p => 
-                        p.postingStatus === 'READY' || 
                         p.postingStatus === 'FAILED' || 
                         p.postingStatus === 'READY_TO_POST'
                       ).length}
@@ -212,7 +210,6 @@ export default function PostingsPage() {
                         checked={selectedIds.includes(posting.documentId)}
                         onCheckedChange={() => handleToggle(posting.documentId)}
                         disabled={
-                          posting.postingStatus !== 'READY' && 
                           posting.postingStatus !== 'FAILED' && 
                           posting.postingStatus !== 'READY_TO_POST'
                         }
@@ -223,17 +220,9 @@ export default function PostingsPage() {
                       onClick={() => router.push(`/postings/${posting.documentId}`)}
                     >
                       <div className="space-y-0.5">
-                        {/* 메인: bundleOrderId 또는 marketplaceOrderId */}
                         <div className="font-mono text-xs text-gray-700">
-                          {posting.bundleOrderId || posting.marketplaceOrderId || '-'}
+                          {posting.orderId || '-'}
                         </div>
-                        {/* 서브: marketplaceProductId (상품주문ID) - bundleOrderId와 다를 때만 표시 */}
-                        {posting.marketplaceProductId && 
-                         posting.marketplaceProductId !== (posting.bundleOrderId || posting.marketplaceOrderId) && (
-                          <div className="font-mono text-xs text-gray-500">
-                            상품: {posting.marketplaceProductId}
-                          </div>
-                        )}
                       </div>
                     </TableCell>
                     <TableCell className="text-xs text-gray-600 py-2.5" onClick={() => router.push(`/postings/${posting.documentId}`)}>

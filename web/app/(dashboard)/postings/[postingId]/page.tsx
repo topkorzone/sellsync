@@ -74,9 +74,9 @@ export default function PostingDetailPage() {
     );
   }
 
-  const canSend = posting.postingStatus === 'READY';
+  const canSend = posting.postingStatus === 'READY_TO_POST';
   const canRetry = posting.postingStatus === 'FAILED';
-  const canDelete = posting.postingStatus === 'READY' || posting.postingStatus === 'FAILED' || posting.postingStatus === 'READY_TO_POST';
+  const canDelete = posting.postingStatus === 'READY_TO_POST' || posting.postingStatus === 'FAILED';
 
   return (
     <div className="flex flex-col h-full gap-4">

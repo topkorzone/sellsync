@@ -10,7 +10,7 @@ export interface PostingParams {
 }
 
 export interface CreatePostingRequest {
-  mode: 'AUTO' | 'MANUAL';
+  mode?: 'AUTO' | 'MANUAL';
   types?: string[];
 }
 
