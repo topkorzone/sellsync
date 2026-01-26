@@ -56,3 +56,6 @@ logs/
 *.tmp
 *.temp
 *.bak
+
+**/node_modules/
+.next/
