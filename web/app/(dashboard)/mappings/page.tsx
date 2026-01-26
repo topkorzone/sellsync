@@ -104,7 +104,12 @@ export default function MappingsPage() {
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      setSelectedMappings(new Set(mappings.map(m => m.productMappingId || m.mappingId).filter(Boolean)));
+      // setSelectedMappings(new Set(mappings.map(m => m.productMappingId || m.mappingId).filter(Boolean)));
+      const ids = mappings
+  .map((m) => m.productMappingId ?? m.mappingId)
+  .filter((id): id is string => typeof id === "string" && id.length > 0);
+
+setSelectedMappings(new Set(ids));
     } else {
       setSelectedMappings(new Set());
     }
