@@ -1,0 +1,154 @@
+spring:
+  application:
+    name: sellsync-api-server
+  
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+  
+  # Tomcat 설정 (OAuth 헤더 크기 제한 해결)
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+  
+  # ============================================================
+  # HikariCP 커넥션 풀 최적화
+  # ============================================================
+  datasource:
+    hikari:
+      maximum-pool-size: 20          # 동시 연결 수 (기본값 10 → 20)
+      minimum-idle: 5                # 최소 유휴 연결
+      idle-timeout: 300000           # 유휴 연결 타임아웃 (5분)
+      max-lifetime: 1200000          # 연결 최대 수명 (20분)
+      connection-timeout: 30000      # 연결 획득 타임아웃 (30초)
+      leak-detection-threshold: 60000  # 연결 누수 감지 (1분)
+      
+      # PostgreSQL 최적화
+      data-source-properties:
+        prepStmtCacheSize: 250
+        prepStmtCacheSqlLimit: 2048
+        cachePrepStmts: true
+        useServerPrepStmts: true
+  
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        use_sql_comments: false
+        default_batch_fetch_size: 100
+        jdbc:
+          batch_size: 50  # 배치 크기 최소화 (timeout 방지)
+          time_zone: Asia/Seoul  # ✅ 애플리케이션은 한국 시간, DB는 UTC로 Hibernate가 자동 변환
+        order_inserts: true
+        order_updates: true
+        batch_versioned_data: true  # 배치 업데이트 최적화
+        # 최적화 추가
+        generate_statistics: false  # 프로덕션에서 비활성화
+        use_query_cache: true
+        use_second_level_cache: false  # 필요시 활성화
+  
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0  # 0으로 설정하여 V1부터 실행
+    locations: classpath:db/migration
+    validate-on-migrate: false  # 마이그레이션 파일 수정 시 체크섬 검증 비활성화
+    out-of-order: false
+    ignore-migration-patterns: "*:missing"  # 삭제된 마이그레이션 무시 (V34)
+  
+  # OAuth2 설정
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: 71338692142-dnkf4cfq2407ttg3njt9vri5behamvm0.apps.googleusercontent.com
+            client-secret: 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
+            # client-id: ${GOOGLE_CLIENT_ID:}
+            # client-secret: ${GOOGLE_CLIENT_SECRET:}
+            scope:
+              - email
+              - profile
+            redirect-uri: http://localhost:8080/api/auth/oauth2/callback/google
+            # redirect-uri: ${API_BASE_URL:http://localhost:8080}/api/auth/oauth2/callback/google
+
+# JWT 설정
+jwt:
+  secret: ${JWT_SECRET:your-256-bit-secret-key-here-must-be-at-least-32-characters-long-for-hs256}
+  access-token-expiration: 3600000      # 1시간 (ms)
+  refresh-token-expiration: 604800000   # 7일 (ms)
+
+# 보안 설정
+security:
+  encryption:
+    key: ${ENCRYPTION_KEY:your-32-byte-secret-key-here!!!!}
+
+# Server 설정 (Tomcat)
+server:
+  port: ${PORT8080}
+  max-http-request-header-size: 256KB
+  tomcat:
+    max-http-form-post-size: 10MB
+    max-http-header-size: 128KB  # OAuth 리디렉션 시 큰 헤더 처리 (기본값 8KB)
+    max-swallow-size: 10MB
+    connection-timeout: 60000
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+# Marketplace API 설정
+marketplace:
+  smartstore:
+    base-url: https://api.commerce.naver.com
+    token-url: https://api.commerce.naver.com/external/v1/oauth2/token
+    connect-timeout: 5000
+    read-timeout: 30000
+  coupang:
+    base-url: https://api-gateway.coupang.com
+    connect-timeout: 5000
+    read-timeout: 30000
+
+# ERP API 설정
+ecount:
+  api:
+    base-url: https://oapi.ecount.com
+    connect-timeout: 5000
+    read-timeout: 30000
+
+# Scheduler 설정
+scheduling:
+  order-collection:
+    enabled: true
+    cron: "0 0 * * * *"  # 매 1시간마다 (매 시 정각: 00:00, 01:00, 02:00, ...)
+    # cron: "0 0/10 * * * *"  # 매 10분마다 (테스트용)
+    # cron: "0 0/30 * * * *"  # 매 30분마다
+
+# 프론트엔드 URL (OAuth 콜백용)
+app:
+  frontend-url: ${FRONTEND_URL:http://localhost:3000}
+
+# Logging
+logging:
+  level:
+    root: INFO
+    com.sellsync: INFO
+    com.sellsync.api.scheduler: DEBUG
+    org.springframework.web: DEBUG
+    org.hibernate.SQL: INFO
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

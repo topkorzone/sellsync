@@ -1,49 +1,50 @@
 spring:
+  config:
+    activate:
+      on-profile: prod
+
   datasource:
-    # Supabase Session Pooler (for production)
-    # Use transaction mode pooler for optimal connection management
-    # Format: postgresql://[user].[project-ref]:[password]@[project-ref].pooler.supabase.com:6543/postgres?pgbouncer=true
-    url: jdbc:postgresql://{project-ref}.pooler.supabase.com:6543/postgres?pgbouncer=true&options=-c%20statement_timeout=60000
-    username: postgres.{project-ref}
-    password: ${DB_PASSWORD}
+    # 운영에서는 반드시 Render ENV로 주입
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
     driver-class-name: org.postgresql.Driver
     hikari:
-      maximum-pool-size: 20
-      minimum-idle: 5
-      connection-timeout: 30000
-      idle-timeout: 300000
-      max-lifetime: 900000
+      maximum-pool-size: ${DB_POOL_MAX:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      connection-timeout: ${DB_CONN_TIMEOUT_MS:30000}
+      idle-timeout: ${DB_IDLE_TIMEOUT_MS:300000}
+      max-lifetime: ${DB_MAX_LIFETIME_MS:900000}
       pool-name: SellSync-Prod-Pool
-      leak-detection-threshold: 60000
-      connection-init-sql: SET statement_timeout = '60s'
-  
+      leak-detection-threshold: ${DB_LEAK_DETECT_MS:60000}
+
   jpa:
     show-sql: false
     properties:
       hibernate:
         format_sql: false
 
-# Production settings
+  # 운영 OAuth2 (Google)
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope: [email, profile]
+            # 운영 콜백: Render 도메인 기반
+            redirect-uri: ${API_BASE_URL}/api/auth/oauth2/callback/google
+
+# 운영 스케줄러: 기본 true (필요하면 Render에서 ENV로 override하거나 파일을 수정)
+scheduling:
+  order-collection:
+    enabled: true
+    cron: "0 0 * * * *"  # 운영 기본: 1시간마다(정각)
+
 logging:
   level:
+    root: INFO
     com.sellsync: INFO
-    org.springframework.web: WARN
-    org.hibernate.SQL: WARN
-    org.hibernate.type.descriptor.sql.BasicBinder: WARN
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level [%X{traceId}] %logger{36} - %msg%n"
-
-# Actuator security (production)
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info,metrics
-  endpoint:
-    health:
-      show-details: never
-
-# Scheduler test controller settings (disabled in production)
-scheduler:
-  test:
-    enabled: false  # ⚠️ 운영 환경에서는 반드시 false로 유지
+    com.sellsync.api.scheduler: DEBUG
+    org.springframework.web: INFO
