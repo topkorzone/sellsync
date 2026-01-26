@@ -6,17 +6,18 @@
 FROM eclipse-temurin:21-jdk AS build
 WORKDIR /app
 
-# Gradle 캐시 최적화를 위한 사전 복사
+# 1) Gradle wrapper / 설정 (레포 루트 기준)
 COPY gradlew ./
 COPY gradle ./gradle
 COPY build.gradle* settings.gradle* ./
 
-# 소스 복사
-COPY src ./src
+# 2) api-server 모듈의 build 설정 + 소스
+COPY api-server/build.gradle* api-server/settings.gradle* ./api-server/
+COPY api-server/src ./api-server/src
 
-# 빌드
+# 빌드 (api-server 모듈만)
 RUN chmod +x ./gradlew \
-    && ./gradlew clean bootJar -x test
+    && ./gradlew :api-server:clean :api-server:bootJar -x test
 
 ############################################
 # 2) Runtime Stage
@@ -27,8 +28,8 @@ WORKDIR /app
 ENV TZ=Asia/Seoul
 ENV JAVA_OPTS=""
 
-COPY --from=build /app/build/libs/*.jar /app/app.jar
+# api-server 산출물 복사
+COPY --from=build /app/api-server/build/libs/*.jar /app/app.jar
 
 EXPOSE 8080
-
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/app.jar"]
