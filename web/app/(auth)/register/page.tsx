@@ -49,11 +49,11 @@ const schema = z.object({
   confirmPassword: z.string(),
   username: z.string().min(2, '이름은 2자 이상이어야 합니다'),
   companyName: z.string().min(2, '회사명은 2자 이상이어야 합니다'),
-  agreeTerms: z.literal(true, {
-    errorMap: () => ({ message: '이용약관에 동의해주세요' }),
+  agreeTerms: z.boolean().refine((val) => val === true, {
+    message: '이용약관에 동의해주세요',
   }),
-  agreePrivacy: z.literal(true, {
-    errorMap: () => ({ message: '개인정보처리방침에 동의해주세요' }),
+  agreePrivacy: z.boolean().refine((val) => val === true, {
+    message: '개인정보처리방침에 동의해주세요',
   }),
 }).refine((data) => data.password === data.confirmPassword, {
   message: '비밀번호가 일치하지 않습니다',
