@@ -104,12 +104,11 @@ export default function MappingsPage() {
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      // setSelectedMappings(new Set(mappings.map(m => m.productMappingId || m.mappingId).filter(Boolean)));
-      const ids = mappings
-  .map((m) => m.productMappingId ?? m.mappingId)
-  .filter((id): id is string => typeof id === "string" && id.length > 0);
-
-setSelectedMappings(new Set(ids));
+      setSelectedMappings(new Set(
+        mappings
+          .map(m => m.productMappingId || m.mappingId)
+          .filter((id): id is string => id !== undefined && id !== null)
+      ));
     } else {
       setSelectedMappings(new Set());
     }
@@ -266,10 +265,10 @@ setSelectedMappings(new Set(ids));
                 return (
                 <TableRow key={mappingId}>
                   <TableCell>
-                    <Checkbox
-                      checked={selectedMappings.has(mappingId)}
-                      onCheckedChange={(checked) => handleSelectMapping(mappingId, checked as boolean)}
-                    />
+                  <Checkbox
+                    checked={mappingId ? selectedMappings.has(mappingId) : false}
+                    onCheckedChange={(checked) => mappingId && handleSelectMapping(mappingId, checked as boolean)}
+                  />
                   </TableCell>
                   <TableCell className="max-w-[250px]">
                     <div className="truncate font-medium">{mapping.productName}</div>
@@ -376,17 +375,17 @@ setSelectedMappings(new Set(ids));
             <div className="p-3 bg-muted rounded-md">
               <p className="text-sm font-medium mb-2">선택된 상품 목록:</p>
               <ScrollArea className="h-[100px]">
-                {mappings.filter(m => {
-                  const id = m.productMappingId || m.mappingId;
-                  return selectedMappings.has(id);
-                }).map(m => {
-                  const id = m.productMappingId || m.mappingId;
-                  return (
-                  <div key={id} className="text-sm py-1">
-                    • {m.productName} {m.optionName && `(${m.optionName})`}
-                  </div>
-                );
-                })}
+              {mappings.filter(m => {
+                const id = m.productMappingId || m.mappingId;
+                return id ? selectedMappings.has(id) : false;
+              }).map(m => {
+                const id = m.productMappingId || m.mappingId || '';
+                return (
+                <div key={id} className="text-sm py-1">
+                  • {m.productName} {m.optionName && `(${m.optionName})`}
+                </div>
+              );
+              })}
               </ScrollArea>
             </div>
             <div className="space-y-2">
