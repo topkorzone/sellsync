@@ -27,7 +27,7 @@ jobs:
       - name: Build and push (api-server)
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: api-server
           file: api-server/Dockerfile
           push: true
           tags: |
