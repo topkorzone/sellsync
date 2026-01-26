@@ -9,7 +9,7 @@ WORKDIR /app
 # Gradle 캐시 최적화를 위한 사전 복사
 COPY gradlew ./
 COPY gradle ./gradle
-COPY build.gradle* settings.gradle* gradle.properties ./
+COPY build.gradle* settings.gradle* ./
 
 # 소스 복사
 COPY src ./src
