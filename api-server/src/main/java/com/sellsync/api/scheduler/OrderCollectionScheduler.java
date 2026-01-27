@@ -262,7 +262,7 @@ public class OrderCollectionScheduler {
         
         // 초기 수집: 30일 전부터
         if (store.getLastSyncedAt() == null) {
-            LocalDate initialFrom = today.minusDays(30);
+            LocalDate initialFrom = today.minusDays(7);
             log.info("[OrderCollectionScheduler] Store {} - initial collection from {} to {}", 
                     store.getStoreId(), initialFrom, today);
             return initialFrom.atStartOfDay();

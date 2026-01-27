@@ -27,6 +27,10 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         jdbc:
           time_zone: Asia/Seoul
+          batch_size: 100  # 배치 처리 크기
+        order_inserts: true  # INSERT 순서 최적화
+        order_updates: true  # UPDATE 순서 최적화
+        batch_versioned_data: true  # 버전 관리 데이터 배치 처리
 
   # ============================================================
   # Flyway (공통)
@@ -50,7 +54,7 @@ spring:
       idle-timeout: 300000
       max-lifetime: 1200000
       connection-timeout: 30000
-      leak-detection-threshold: 60000
+      leak-detection-threshold: 180000  # 3분 (대용량 작업 고려)
       data-source-properties:
         cachePrepStmts: true
         prepStmtCacheSize: 250

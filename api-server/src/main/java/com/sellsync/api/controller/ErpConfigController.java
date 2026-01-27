@@ -6,7 +6,6 @@ import com.sellsync.api.domain.erp.service.ErpConfigService;
 import com.sellsync.api.security.CustomUserDetails;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
@@ -41,7 +40,7 @@ public class ErpConfigController {
     }
     
     /**
-     * 특정 ERP 설정 조회
+     * 특정 ERP 설정 조회 (없으면 기본값으로 자동 생성)
      */
     @GetMapping("/{erpCode}")
     @PreAuthorize("hasAnyRole('OPERATOR', 'TENANT_ADMIN')")
@@ -49,8 +48,28 @@ public class ErpConfigController {
         @AuthenticationPrincipal CustomUserDetails user,
         @PathVariable String erpCode
     ) {
+        // ERP 설정이 없으면 기본값으로 자동 생성
         ErpConfig config = erpConfigService.getConfig(user.getTenantId(), erpCode)
-            .orElseThrow(() -> new IllegalArgumentException("ERP config not found"));
+            .orElseGet(() -> {
+                log.info("[ErpConfig] Config not found, creating default: tenant={}, erp={}", 
+                    user.getTenantId(), erpCode);
+                return erpConfigService.createOrUpdateConfig(
+                    user.getTenantId(),
+                    erpCode,
+                    false,  // autoPostingEnabled - 기본 비활성화
+                    false,  // autoSendEnabled - 기본 비활성화
+                    "ONLINE",  // defaultCustomerCode
+                    "100",  // defaultWarehouseCode
+                    "SHIPPING",  // shippingItemCode
+                    "COMM001",  // commissionItemCode
+                    "판매수수료",  // commissionItemName
+                    "COMM002",  // shippingCommissionItemCode
+                    "배송비수수료",  // shippingCommissionItemName
+                    10,  // postingBatchSize
+                    3,  // maxRetryCount
+                    true  // enabled - ERP 연동 활성화
+                );
+            });
         return ResponseEntity.ok(ApiResponse.ok(config));
     }
     

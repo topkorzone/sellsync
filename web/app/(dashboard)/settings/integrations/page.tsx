@@ -55,6 +55,8 @@ export default function IntegrationsPage() {
   const { data: erpConfig, isLoading: isErpLoading } = useQuery({
     queryKey: ['erp-config', 'ECOUNT'],
     queryFn: () => erpApi.getErpConfig('ECOUNT'),
+    retry: false, // 에러 시 재시도 안함
+    throwOnError: false, // 에러를 throw하지 않음
   });
 
   // 스토어 생성 mutation
@@ -673,7 +675,19 @@ export default function IntegrationsPage() {
           </div>
         </div>
 
-        {erpConfig && (
+        {isErpLoading ? (
+          <Card className="p-6">
+            <Loading />
+          </Card>
+        ) : !erpConfig ? (
+          <Card className="p-6">
+            <EmptyState
+              icon={<Database className="h-12 w-12" />}
+              title="ERP 설정이 없습니다"
+              description="API 인증 버튼을 클릭하여 ERP 연동을 설정하세요"
+            />
+          </Card>
+        ) : (
           <Card className="p-6">
             <div className="space-y-6">
               {/* ERP 정보 */}
@@ -1011,7 +1025,7 @@ export default function IntegrationsPage() {
                       onClick={() => openCredentialDialog(store)}
                     >
                       <Settings className="mr-2 h-4 w-4" />
-                      API 연동
+                      API 인증
                     </Button>
                     <Button
                       variant="outline"
@@ -1029,7 +1043,19 @@ export default function IntegrationsPage() {
                       onClick={() => openCommissionItemsDialog(store)}
                     >
                       <DollarSign className="mr-2 h-4 w-4" />
-                      수수료 품목
+                      수수료 출력
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => {
+                        toast.info('전표 템플릿 설정 페이지로 이동합니다');
+                        window.location.href = '/settings/templates';
+                      }}
+                    >
+                      <Zap className="mr-2 h-4 w-4" />
+                      전표 활성화
                     </Button>
                     <div className="flex gap-2">
                       <Button

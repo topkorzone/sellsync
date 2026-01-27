@@ -39,7 +39,7 @@ public class ErpItemSyncService {
         private int deactivated;
     }
 
-    @Transactional
+    @Transactional(timeout = 300)  // 5분 타임아웃 (대용량 ERP 품목 동기화)
     public SyncResult syncItems(UUID tenantId, String erpCode, String triggerType) {
         log.info("[ErpItemSync] Starting sync for tenant {} ({})", tenantId, erpCode);
         
@@ -146,6 +146,7 @@ public class ErpItemSyncService {
                     int end = Math.min(i + batchSize, newItems.size());
                     List<ErpItem> batch = newItems.subList(i, end);
                     erpItemRepository.saveAll(batch);
+                    erpItemRepository.flush();  // Hibernate 세션 플러시
                     log.debug("[ErpItemSync] Saved new items batch {}-{} of {}", i + 1, end, newItems.size());
                 }
             }
@@ -156,6 +157,7 @@ public class ErpItemSyncService {
                     int end = Math.min(i + batchSize, existingItems.size());
                     List<ErpItem> batch = existingItems.subList(i, end);
                     erpItemRepository.saveAll(batch);
+                    erpItemRepository.flush();  // Hibernate 세션 플러시
                     log.debug("[ErpItemSync] Updated existing items batch {}-{} of {}", i + 1, end, existingItems.size());
                 }
             }
@@ -182,9 +184,17 @@ public class ErpItemSyncService {
             return result;
 
         } catch (Exception e) {
-            log.error("[ErpItemSync] Failed for tenant {}", tenantId, e);
-            completeSyncHistory(history, null, e.getMessage());
-            throw new RuntimeException("ERP item sync failed", e);
+            String errorDetail = String.format("Failed for tenant=%s, erpCode=%s, error=%s", 
+                    tenantId, erpCode, e.getMessage());
+            log.error("[ErpItemSync] {}", errorDetail, e);
+            
+            // 스택 트레이스 주요 부분 로깅
+            if (e.getCause() != null) {
+                log.error("[ErpItemSync] Caused by: {}", e.getCause().getMessage());
+            }
+            
+            completeSyncHistory(history, null, errorDetail);
+            throw new RuntimeException("ERP item sync failed: " + e.getMessage(), e);
         }
     }
 
@@ -238,6 +248,17 @@ public class ErpItemSyncService {
                 consecutiveErrors++;
                 log.error("[ErpItemSync] Failed to fetch page {} (attempt {}/{}): {}", 
                         currentPage, consecutiveErrors, maxConsecutiveErrors, e.getMessage());
+                
+                // 412 에러는 더 이상 페이지가 없다는 의미이므로 정상 종료
+                boolean is412Error = e.getMessage() != null && 
+                    (e.getMessage().contains("412") || e.getMessage().contains("Precondition"));
+                
+                if (is412Error && !allItems.isEmpty()) {
+                    log.info("[ErpItemSync] Received 412 Precondition Failed - no more pages available. " +
+                            "Successfully fetched {} items from {} pages", allItems.size(), currentPage - 1);
+                    hasMore = false;
+                    break;
+                }
                 
                 // 첫 페이지 실패 시 빈 body로 전체 조회 시도
                 if (currentPage == 1 && consecutiveErrors == 1) {

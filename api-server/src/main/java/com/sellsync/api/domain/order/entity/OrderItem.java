@@ -12,15 +12,7 @@ import java.util.UUID;
  * 주문 상품 엔티티
  */
 @Entity
-@Table(
-    name = "order_items",
-    uniqueConstraints = {
-        @UniqueConstraint(
-            name = "uk_order_item_marketplace",
-            columnNames = {"order_id", "marketplace_item_id"}
-        )
-    }
-)
+@Table(name = "order_items")
 @Getter @Setter
 @NoArgsConstructor
 @AllArgsConstructor
@@ -45,8 +37,11 @@ public class OrderItem {
      * - 쿠팡: orderItemId
      * 
      * 복합키 (order_id, marketplace_item_id)로 각 상품 라인을 고유 식별
+     * 
+     * nullable=true: 기존 데이터 호환을 위해 임시로 허용
+     * TODO: 모든 데이터가 채워진 후 NOT NULL로 변경 예정
      */
-    @Column(name = "marketplace_item_id", nullable = false, length = 100)
+    @Column(name = "marketplace_item_id", nullable = true, length = 100)
     private String marketplaceItemId;
 
     @Column(name = "marketplace_product_id", nullable = false, length = 100)

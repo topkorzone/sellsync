@@ -81,7 +81,8 @@ public class SyncJobController {
         
         LocalDateTime from = request.getFrom() != null 
                 ? request.getFrom() 
-                : LocalDate.now().minusMonths(1).atStartOfDay(); // 30일 전 00:00:00 (오늘 포함 30일)
+                : LocalDate.now().minusDays(15).atStartOfDay(); // 30일 전 00:00:00 (오늘 포함 30일)
+                // : LocalDate.now().minusMonths(1).atStartOfDay(); // 30일 전 00:00:00 (오늘 포함 30일)
 
         // 초기 이력 생성 (IN_PROGRESS 상태)
         OrderCollectionHistory history = historyService.createInitialHistory(store, from, to);

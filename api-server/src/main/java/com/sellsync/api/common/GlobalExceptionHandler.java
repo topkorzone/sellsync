@@ -85,11 +85,38 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * RuntimeException 예외 처리
+     */
+    @ExceptionHandler(RuntimeException.class)
+    public ResponseEntity<ApiResponse<Void>> handleRuntimeException(RuntimeException e) {
+        log.error("Runtime error: {}", e.getMessage(), e);
+        
+        // Caused by 정보도 로깅
+        if (e.getCause() != null) {
+            log.error("Caused by: {} - {}", 
+                    e.getCause().getClass().getSimpleName(), 
+                    e.getCause().getMessage());
+        }
+        
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.error("RUNTIME_ERROR", 
+                        "작업 처리 중 오류가 발생했습니다: " + e.getMessage()));
+    }
+    
+    /**
      * 기타 예외 처리
      */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleGeneric(Exception e) {
-        log.error("Unexpected error", e);
+        log.error("Unexpected error: {} - {}", e.getClass().getSimpleName(), e.getMessage(), e);
+        
+        // Caused by 정보도 로깅
+        if (e.getCause() != null) {
+            log.error("Caused by: {} - {}", 
+                    e.getCause().getClass().getSimpleName(), 
+                    e.getCause().getMessage());
+        }
+        
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ApiResponse.error("INTERNAL_ERROR", "서버 오류가 발생했습니다"));
     }
