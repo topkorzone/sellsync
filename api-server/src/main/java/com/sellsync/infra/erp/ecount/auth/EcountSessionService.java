@@ -156,6 +156,8 @@ public class EcountSessionService {
         
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
+        // Brotli(br) 압축 제외 - Ecount API 서버가 br을 제대로 처리하지 못할 수 있음
+        headers.set("Accept-Encoding", "gzip, deflate");
 
         // JSON 문자열을 직접 생성하여 Talend 성공 요청과 정확히 동일하게 구성
         String jsonBody = String.format(

@@ -46,6 +46,7 @@ public class EcountClient implements ErpClient {
             
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("Accept-Encoding", "gzip, deflate");
             HttpEntity<Map<String, Object>> httpRequest = new HttpEntity<>(body, headers);
 
             ResponseEntity<String> response = restTemplate.postForEntity(url, httpRequest, String.class);
@@ -103,6 +104,8 @@ public class EcountClient implements ErpClient {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
+            // Brotli(br) 압축 제외 - Ecount API 서버가 br을 제대로 처리하지 못할 수 있음
+            headers.set("Accept-Encoding", "gzip, deflate");
             HttpEntity<Map<String, Object>> httpRequest = new HttpEntity<>(body, headers);
 
             log.info("[Ecount] GetItems Request: URL={}, Body={}", 
@@ -191,6 +194,10 @@ public class EcountClient implements ErpClient {
     private List<ErpItemDto> retryWithEmptyBody(UUID tenantId, String url, HttpHeaders headers) {
         try {
             Map<String, Object> emptyBody = new HashMap<>();
+            // Accept-Encoding 헤더가 없으면 추가
+            if (!headers.containsKey("Accept-Encoding")) {
+                headers.set("Accept-Encoding", "gzip, deflate");
+            }
             HttpEntity<Map<String, Object>> retryRequest = new HttpEntity<>(emptyBody, headers);
             
             log.info("[Ecount] Retrying GetItems with empty body");
@@ -241,6 +248,7 @@ public class EcountClient implements ErpClient {
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("Accept-Encoding", "gzip, deflate");
             HttpEntity<Map<String, Object>> httpRequest = new HttpEntity<>(body, headers);
 
             ResponseEntity<String> response = restTemplate.postForEntity(url, httpRequest, String.class);
@@ -291,6 +299,7 @@ public class EcountClient implements ErpClient {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
+            headers.set("Accept-Encoding", "gzip, deflate");
             HttpEntity<com.sellsync.infra.erp.ecount.dto.EcountSaleFormRequest> httpRequest = 
                     new HttpEntity<>(request, headers);
 
@@ -381,6 +390,7 @@ public class EcountClient implements ErpClient {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
+            headers.set("Accept-Encoding", "gzip, deflate");
             HttpEntity<Map<String, Object>> httpRequest = new HttpEntity<>(body, headers);
 
             log.info("[Ecount] GetListInventoryBalanceStatusByLocation Request: URL={}, BASE_DATE={}", 
