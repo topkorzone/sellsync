@@ -22,10 +22,9 @@ public class ApiServerApplication {
 
     public static void main(String[] args) {
         // ✅ 애플리케이션 전체 Timezone을 한국 시간으로 설정
-        // LocalDateTime.now()가 한국 시간을 반환하며, Hibernate가 DB 저장 시 UTC로 자동 변환
-//        TimeZone.setDefault(TimeZone.getTimeZone("Asia/Seoul"));
-//
-//        SpringApplication.run(ApiServerApplication.class, args);
+        // LocalDateTime.now()가 한국 시간을 반환하며, 로그도 한국 시간으로 출력됨
+        TimeZone.setDefault(TimeZone.getTimeZone("Asia/Seoul"));
+        
         SpringApplication app = new SpringApplication(ApiServerApplication.class);
 
         app.addListeners((org.springframework.boot.context.event.ApplicationEnvironmentPreparedEvent event) -> {
