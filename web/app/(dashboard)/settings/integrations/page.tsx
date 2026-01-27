@@ -479,7 +479,7 @@ export default function IntegrationsPage() {
                       <Input
                         id="comCode"
                         name="comCode"
-                        placeholder="예: 89021"
+                        placeholder="이카운트 로그인 회사코드"
                         required
                       />
                       <p className="text-xs text-muted-foreground">
@@ -495,7 +495,7 @@ export default function IntegrationsPage() {
                       <Input
                         id="userId"
                         name="userId"
-                        placeholder="예: USER_ID"
+                        placeholder="이카운트 로그인 아이디"
                         required
                       />
                       <p className="text-xs text-muted-foreground">
@@ -518,6 +518,15 @@ export default function IntegrationsPage() {
                       <p className="text-xs text-muted-foreground">
                         Self-Customizing &gt; 정보관리 &gt; API인증키관리에서 발급받은 키
                       </p>
+                      <a 
+                        href="https://youtu.be/fe-d8OkxOYE?si=oIw92km8x8KlvKDa" 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 underline decoration-2 underline-offset-4 hover:decoration-blue-700 transition-colors"
+                      >
+                        <span>📺</span>
+                        <span>이카운트 API 테스트키 발급 방법 보기</span>
+                      </a>
                     </div>
                   </div>
 
