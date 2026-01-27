@@ -29,7 +29,7 @@ import java.util.stream.Collectors;
  * 주문 수집 스케줄러 (병렬 처리 최적화 버전)
  * 
  * 개선 사항:
- * - 1시간 주기로 오늘 날짜 주문만 수집
+ * - 1시간 주기로 최근 7일치 주문 수집 (상태 업데이트 반영)
  * - 병렬 처리: 동시에 10개 스토어 처리 (순차 처리 대비 8배 빠름)
  * - 시간 분산: 스토어별 시작 시간 분산으로 API Rate Limit 회피
  * 
@@ -49,7 +49,7 @@ public class OrderCollectionScheduler {
     @Qualifier("orderCollectionExecutor")
     private final Executor orderCollectionExecutor;
 
-    private static final int COLLECTION_DAYS = 1;           // 수집 범위 (일) - 오늘만 수집
+    private static final int COLLECTION_DAYS = 7;           // 수집 범위 (일) - 최근 7일 수집 (상태 업데이트 반영)
     private static final boolean ENABLE_PARALLEL = false;   // 병렬 처리 활성화 (일단 false로 설정, 안정화 후 true)
     
     private volatile boolean isRunning = false; // 중복 실행 방지 플래그
@@ -57,13 +57,14 @@ public class OrderCollectionScheduler {
     @PostConstruct
     public void init() {
         log.info("=== [OrderCollectionScheduler] 초기화 완료 - 스케줄러 빈 생성됨 ===");
-        log.info("[OrderCollectionScheduler] 설정: COLLECTION_DAYS={} (오늘만 수집), PARALLEL_ENABLED={}", 
-                COLLECTION_DAYS, ENABLE_PARALLEL);
+        log.info("[OrderCollectionScheduler] 설정: COLLECTION_DAYS={} (최근 {}일 수집), PARALLEL_ENABLED={}", 
+                COLLECTION_DAYS, COLLECTION_DAYS, ENABLE_PARALLEL);
     }
 
     /**
      * 1시간 주기 주문 수집 스케줄러 (병렬 처리)
      * cron: 매 1시간 (정각: 00:00, 01:00, 02:00, ...)
+     * 수집 범위: 오늘 포함 최근 7일치 (상태 업데이트 반영)
      * 
      * 병렬 처리 전략:
      * - CompletableFuture를 사용한 비동기 병렬 처리
@@ -213,7 +214,7 @@ public class OrderCollectionScheduler {
         log.info("[OrderCollectionScheduler] Processing store: {} ({})", 
                 store.getStoreName(), store.getMarketplace());
 
-        // 날짜 단위 수집: 오늘 23:59:59까지
+        // 오늘 포함 최근 7일치 수집 (상태 업데이트 반영)
         LocalDateTime to = LocalDate.now().atTime(LocalTime.MAX);
         LocalDateTime from = calculateFromDateTime(store);
 
@@ -252,43 +253,18 @@ public class OrderCollectionScheduler {
 
     /**
      * 수집 시작 시간 계산
-     * - last_synced_at이 없으면: 30일 전부터 (초기 수집)
-     * - last_synced_at이 있으면: 
-     *   - 마지막 수집 날짜가 오늘 또는 미래면: 오늘 00:00부터 (재수집)
-     *   - 마지막 수집 날짜가 과거면: 그 날짜부터 (누락 구간 수집)
+     * - 항상 오늘 포함 최근 7일치 수집 (상태값 업데이트 반영을 위함)
+     * - from: 오늘 기준 7일 전 00:00:00
+     * - to: 오늘 23:59:59
      */
     private LocalDateTime calculateFromDateTime(Store store) {
         LocalDate today = LocalDate.now();
+        LocalDate fromDate = today.minusDays(COLLECTION_DAYS - 1);  // 오늘 포함 7일이므로 -6일
         
-        // 초기 수집: 30일 전부터
-        if (store.getLastSyncedAt() == null) {
-            LocalDate initialFrom = today.minusDays(7);
-            log.info("[OrderCollectionScheduler] Store {} - initial collection from {} to {}", 
-                    store.getStoreId(), initialFrom, today);
-            return initialFrom.atStartOfDay();
-        }
+        log.info("[OrderCollectionScheduler] Store {} - collecting orders from {} to {} ({}일)", 
+                store.getStoreId(), fromDate, today, COLLECTION_DAYS);
         
-        // 마지막 수집 날짜 계산
-        LocalDate lastSyncedDate = store.getLastSyncedAt().toLocalDate();
-        
-        // 마지막 수집이 미래 날짜면 (23:59:59가 다음날 00:00:00으로 저장된 경우)
-        // → 실제로는 어제까지 수집한 것이므로 어제 날짜 사용
-        if (lastSyncedDate.isAfter(today)) {
-            lastSyncedDate = lastSyncedDate.minusDays(1);
-        }
-        
-        // 마지막 수집 날짜가 오늘이면: 오늘만 재수집
-        if (lastSyncedDate.equals(today)) {
-            log.info("[OrderCollectionScheduler] Store {} - re-fetching today: {}", 
-                    store.getStoreId(), today);
-            return today.atStartOfDay();
-        }
-        
-        // 마지막 수집 날짜가 과거면: 그 날짜부터 다시 수집
-        log.info("[OrderCollectionScheduler] Store {} - fetching from {} to {} ({} days)", 
-                store.getStoreId(), lastSyncedDate, today, 
-                java.time.temporal.ChronoUnit.DAYS.between(lastSyncedDate, today));
-        return lastSyncedDate.atStartOfDay();
+        return fromDate.atStartOfDay();
     }
 
     /**
