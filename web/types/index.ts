@@ -161,8 +161,7 @@ export interface PostingTemplate {
 // ERP Document (전표)
 // ============================================
 export type PostingStatus = 
-  | 'CREATED'
-  | 'PENDING_MAPPING'
+  | 'READY'
   | 'READY_TO_POST' 
   | 'POSTING_REQUESTED' 
   | 'POSTED' 
