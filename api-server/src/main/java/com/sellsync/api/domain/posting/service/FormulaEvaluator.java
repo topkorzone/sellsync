@@ -263,7 +263,8 @@ public class FormulaEvaluator {
         // 덧셈, 뺄셈 처리 (낮은 우선순위)
         for (int i = expr.length() - 1; i >= 0; i--) {
             char c = expr.charAt(i);
-            if ((c == '+' || c == '-') && i > 0) {
+            // 음수 부호와 연산자를 구분: 앞에 숫자나 )가 있어야 연산자
+            if ((c == '+' || c == '-') && i > 0 && isOperator(expr, i)) {
                 String left = expr.substring(0, i);
                 String right = expr.substring(i + 1);
                 
@@ -302,6 +303,28 @@ public class FormulaEvaluator {
         
         // 숫자 변환
         return new BigDecimal(expr);
+    }
+    
+    /**
+     * +/- 문자가 연산자인지 음수 부호인지 판별
+     * 
+     * 연산자: 앞에 숫자나 닫는 괄호가 있는 경우
+     * 음수 부호: 앞에 연산자, 여는 괄호가 있거나 문자열 시작인 경우
+     * 
+     * @param expr 수식
+     * @param index +/- 문자의 위치
+     * @return 연산자이면 true, 음수 부호이면 false
+     */
+    private boolean isOperator(String expr, int index) {
+        if (index == 0) {
+            return false; // 맨 앞의 +/-는 부호
+        }
+        
+        char prev = expr.charAt(index - 1);
+        
+        // 앞 문자가 숫자 또는 닫는 괄호면 연산자
+        // 예: "68-5", "100)-5"
+        return Character.isDigit(prev) || prev == ')';
     }
     
     /**

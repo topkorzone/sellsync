@@ -36,7 +36,7 @@ spring:
   # Flyway (공통)
   # ============================================================
   flyway:
-    enabled: true
+    enabled: false
     baseline-on-migrate: true
     locations: classpath:db/migration
     validate-on-migrate: false
@@ -98,13 +98,13 @@ management:
 #  - OAuth2 설정은 local/prod 파일로 완전 분리
 # ============================================================
 jwt:
-  secret: ${JWT_SECRET:dev-secret-change-me-32-characters-minimum!!!!!!!!}
+  secret: ${JWT_SECRET:roDCIFYZmS4ji+ZhwFNJ3S9oEEk4iXRKWUYZ5yMa4wk=}
   access-token-expiration: 3600000
   refresh-token-expiration: 604800000
 
 security:
   encryption:
-    key: ${ENCRYPTION_KEY:dev-encryption-key-change-me-32bytes!!!!}
+    key: ${ENCRYPTION_KEY:ruwNCaVxeGCdBqdoVT5YdwqQMudlDBc4wD5LeAG+U1o=}
 
 # ============================================================
 # External APIs (공통)

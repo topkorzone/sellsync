@@ -394,7 +394,7 @@ public class PostingService {
                     ));
         }
 
-        // PostingResponse 변환 및 bundleOrderId, marketplaceProductId 설정
+        // PostingResponse 변환 및 bundleOrderId, marketplaceProductId, buyerName 설정
         final Map<UUID, Order> finalOrderMap = orderMap;
         return postings.map(posting -> {
             PostingResponse response = PostingResponse.from(posting);
@@ -413,6 +413,11 @@ public class PostingService {
                     if (order.getItems() != null && !order.getItems().isEmpty()) {
                         String productId = order.getItems().get(0).getMarketplaceProductId();
                         response.setMarketplaceProductId(productId);
+                    }
+                    
+                    // buyerName 설정
+                    if (order.getBuyerName() != null && !order.getBuyerName().isEmpty()) {
+                        response.setBuyerName(order.getBuyerName());
                     }
                 }
             }
@@ -868,7 +873,18 @@ public class PostingService {
             return unmappedItems;
         }
 
+        log.info("[매핑 체크 시작] orderId={}, tenantId={}, storeId={}, marketplace={}, itemCount={}", 
+            order.getOrderId(), order.getTenantId(), order.getStoreId(), order.getMarketplace(), order.getItems().size());
+
         for (com.sellsync.api.domain.order.entity.OrderItem item : order.getItems()) {
+            log.info("[매핑 조회 시도] orderId={}, productId={}, sku={}, tenantId={}, storeId={}, marketplace={}", 
+                order.getOrderId(), 
+                item.getMarketplaceProductId(), 
+                item.getMarketplaceSku(),
+                order.getTenantId(),
+                order.getStoreId(),
+                order.getMarketplace());
+
             Optional<com.sellsync.api.domain.mapping.dto.ProductMappingResponse> mapping = 
                 productMappingService.findActiveMapping(
                     order.getTenantId(),
@@ -882,8 +898,21 @@ public class PostingService {
                 String itemKey = String.format("%s:%s", 
                     item.getMarketplaceProductId(), item.getMarketplaceSku());
                 unmappedItems.add(itemKey);
-                log.warn("[상품 매핑 없음] orderId={}, productId={}, sku={}", 
-                    order.getOrderId(), item.getMarketplaceProductId(), item.getMarketplaceSku());
+                log.error("[상품 매핑 없음 또는 조건 불충족] orderId={}, productId={}, sku={}, tenantId={}, storeId={}, marketplace={} " +
+                    "→ DB에서 매핑 데이터를 직접 확인해주세요. " +
+                    "확인사항: (1) isActive=true 인지, (2) mappingStatus=MAPPED 인지, (3) productId/sku 값이 정확한지", 
+                    order.getOrderId(), 
+                    item.getMarketplaceProductId(), 
+                    item.getMarketplaceSku(),
+                    order.getTenantId(),
+                    order.getStoreId(),
+                    order.getMarketplace());
+            } else {
+                log.info("[매핑 조회 성공] orderId={}, productId={}, sku={}, erpItemCode={}", 
+                    order.getOrderId(), 
+                    item.getMarketplaceProductId(), 
+                    item.getMarketplaceSku(),
+                    mapping.get().getErpItemCode());
             }
         }
 

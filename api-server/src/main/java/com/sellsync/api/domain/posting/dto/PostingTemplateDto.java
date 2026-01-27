@@ -27,6 +27,7 @@ public class PostingTemplateDto {
     private String erpCode;
     private PostingType postingType;
     private Boolean isActive;
+    private Boolean isSystemTemplate;
     private String description;
     private List<PostingTemplateFieldDto> fields;
     private LocalDateTime createdAt;
@@ -43,6 +44,7 @@ public class PostingTemplateDto {
             .erpCode(entity.getErpCode())
             .postingType(entity.getPostingType())
             .isActive(entity.getIsActive())
+            .isSystemTemplate(entity.getIsSystemTemplate())
             .description(entity.getDescription())
             .fields(entity.getFields() != null 
                 ? entity.getFields().stream()
@@ -65,6 +67,7 @@ public class PostingTemplateDto {
             .erpCode(entity.getErpCode())
             .postingType(entity.getPostingType())
             .isActive(entity.getIsActive())
+            .isSystemTemplate(entity.getIsSystemTemplate())
             .description(entity.getDescription())
             .createdAt(entity.getCreatedAt())
             .updatedAt(entity.getUpdatedAt())

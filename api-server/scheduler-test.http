@@ -21,7 +21,7 @@
 
 # JWT 토큰 (다른 인증 필요 API 테스트 시 사용)
 # 로그인 후 받은 accessToken을 여기에 입력하세요
-@accessToken = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIyMjIyMjIyMi0yMjIyLTIyMjItMjIyMi0yMjIyMjIyMjIyMjIiLCJlbWFpbCI6ImFkbWluQHRlc3QuY29tIiwicm9sZSI6IlRFTkFOVF9BRE1JTiIsImlhdCI6MTc2ODk5NDk2NCwiZXhwIjoxNzY4OTk4NTY0LCJ0ZW5hbnRJZCI6IjExMTExMTExLTExMTEtMTExMS0xMTExLTExMTExMTExMTExMSJ9.01Grde-sSGatVj7r7czLFcWCL-iTUZ-41C_Wssu6bHU",
+@accessToken = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIyMjIyMjIyMi0yMjIyLTIyMjItMjIyMi0yMjIyMjIyMjIyMjIiLCJlbWFpbCI6ImFkbWluQHRlc3QuY29tIiwicm9sZSI6IlRFTkFOVF9BRE1JTiIsImlhdCI6MTc2ODk5NDk2NCwiZXhwIjoxNzY4OTk4NTY0LCJ0ZW5hbnRJZCI6IjExMTExMTExLTExMTEtMTExMS0xMTExLTExMTExMTExMTExMSJ9.01Grde-sSGatVj7r7czLFcWCL-iTUZ-41C_Wssu6bHU"
 @refreshToken = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIyMjIyMjIyMi0yMjIyLTIyMjItMjIyMi0yMjIyMjIyMjIyMjIiLCJpYXQiOjE3Njg5OTQ5NjQsImV4cCI6MTc2OTU5OTc2NH0.A03EE2UiM8La-EhjFS6NrJSMfSyQQS83RJzjMPood8g"
 
 ### ============================================
@@ -37,7 +37,7 @@ Content-Type: application/json
   "password": "password123"
 }
 
-# 응답에서 accessToken을 복사하여 위의 @accessToken 변수에 입력하세요
+### 응답에서 accessToken을 복사하여 위의 @accessToken 변수에 입력하세요
 
 
 ### ============================================

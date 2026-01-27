@@ -70,6 +70,7 @@ export default function PostingsPage() {
   // 전체 선택/해제 (READY, FAILED, READY_TO_POST 상태만)
   const handleToggleAll = () => {
     const selectablePostings = postings.filter(p => 
+      p.postingStatus === 'READY' ||
       p.postingStatus === 'FAILED' || 
       p.postingStatus === 'READY_TO_POST'
     );
@@ -182,6 +183,7 @@ export default function PostingsPage() {
                   <TableHead className="bg-slate-100 w-[50px]">
                     <Checkbox
                       checked={selectedIds.length > 0 && selectedIds.length === postings.filter(p => 
+                        p.postingStatus === 'READY' ||
                         p.postingStatus === 'FAILED' || 
                         p.postingStatus === 'READY_TO_POST'
                       ).length}
@@ -189,6 +191,7 @@ export default function PostingsPage() {
                     />
                   </TableHead>
                   <TableHead className="bg-slate-100 w-[180px] min-w-[180px] text-xs font-bold text-slate-700 uppercase tracking-wide">주문번호</TableHead>
+                  <TableHead className="bg-slate-100 w-[120px] min-w-[120px] text-xs font-bold text-slate-700 uppercase tracking-wide">주문자명</TableHead>
                   <TableHead className="bg-slate-100 w-[120px] min-w-[120px] text-xs font-bold text-slate-700 uppercase tracking-wide">유형</TableHead>
                   <TableHead className="bg-slate-100 w-[100px] min-w-[100px] text-xs font-bold text-slate-700 uppercase tracking-wide text-center">상태</TableHead>
                   <TableHead className="bg-slate-100 w-[140px] min-w-[140px] text-xs font-bold text-slate-700 uppercase tracking-wide">ERP 문서번호</TableHead>
@@ -210,6 +213,7 @@ export default function PostingsPage() {
                         checked={selectedIds.includes(posting.documentId)}
                         onCheckedChange={() => handleToggle(posting.documentId)}
                         disabled={
+                          posting.postingStatus !== 'READY' &&
                           posting.postingStatus !== 'FAILED' && 
                           posting.postingStatus !== 'READY_TO_POST'
                         }
@@ -221,9 +225,12 @@ export default function PostingsPage() {
                     >
                       <div className="space-y-0.5">
                         <div className="font-mono text-xs text-gray-700">
-                          {posting.orderId || '-'}
+                          {posting.bundleOrderId || posting.orderId || '-'}
                         </div>
                       </div>
+                    </TableCell>
+                    <TableCell className="text-xs text-gray-600 py-2.5" onClick={() => router.push(`/postings/${posting.documentId}`)}>
+                      {posting.buyerName || '-'}
                     </TableCell>
                     <TableCell className="text-xs text-gray-600 py-2.5" onClick={() => router.push(`/postings/${posting.documentId}`)}>
                       {POSTING_TYPE[posting.postingType as keyof typeof POSTING_TYPE]?.label || posting.postingType}

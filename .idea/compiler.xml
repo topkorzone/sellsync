@@ -2,6 +2,7 @@
 <project version="4">
   <component name="CompilerConfiguration">
     <annotationProcessing>
+      <profile default="true" name="Default" enabled="true" />
       <profile name="Gradle Imported" enabled="true">
         <outputRelativeToContentRoot value="true" />
         <processorPath useClasspath="false">
@@ -14,9 +15,9 @@
   </component>
   <component name="JavacSettings">
     <option name="ADDITIONAL_OPTIONS_OVERRIDE">
-      <module name="api-server" options="-parameters" />
-      <module name="api-server.main" options="-parameters" />
-      <module name="api-server.test" options="-parameters" />
+      <module name="api-server" options="-parameters -parameters" />
+      <module name="api-server.main" options="-parameters -parameters" />
+      <module name="api-server.test" options="-parameters -parameters" />
     </option>
   </component>
 </project>

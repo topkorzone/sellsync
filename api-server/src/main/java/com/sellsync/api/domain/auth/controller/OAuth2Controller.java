@@ -37,7 +37,7 @@ public class OAuth2Controller {
     
     @Value("${spring.security.oauth2.client.registration.google.redirect-uri:}")
     private String googleRedirectUri;
-    
+
     @Value("${app.frontend-url:http://localhost:3000}")
     private String frontendUrl;
     

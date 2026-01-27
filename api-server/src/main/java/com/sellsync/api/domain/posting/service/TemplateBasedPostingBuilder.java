@@ -1,5 +1,6 @@
 package com.sellsync.api.domain.posting.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sellsync.api.domain.order.entity.Order;
 import com.sellsync.api.domain.posting.entity.PostingTemplate;
@@ -138,10 +139,18 @@ public class TemplateBasedPostingBuilder {
         if (custValue == null || custValue.toString().trim().isEmpty()) {
             if (order.getStoreId() != null) {
                 storeRepository.findById(order.getStoreId()).ifPresent(store -> {
-                    if (store.getErpCustomerCode() != null && !store.getErpCustomerCode().isEmpty()) {
-                        postingData.put("CUST", store.getErpCustomerCode());
-                        log.info("[자동 보충 - 거래처 코드] orderId={}, storeId={}, erpCustomerCode={}", 
-                            order.getOrderId(), store.getStoreId(), store.getErpCustomerCode());
+                    // defaultCustomerCode 우선 사용 (신규 필드)
+                    String customerCode = store.getDefaultCustomerCode();
+                    
+                    // 하위 호환성: defaultCustomerCode가 없으면 erpCustomerCode 사용 (deprecated)
+                    if (customerCode == null || customerCode.isEmpty()) {
+                        customerCode = store.getErpCustomerCode();
+                    }
+                    
+                    if (customerCode != null && !customerCode.isEmpty()) {
+                        postingData.put("CUST", customerCode);
+                        log.info("[자동 보충 - 거래처 코드] orderId={}, storeId={}, customerCode={}", 
+                            order.getOrderId(), store.getStoreId(), customerCode);
                     } else {
                         log.warn("[거래처 코드 없음] orderId={}, storeId={}, storeName={} - 스토어에 거래처 코드를 설정해주세요", 
                             order.getOrderId(), store.getStoreId(), store.getStoreName());
@@ -298,14 +307,31 @@ public class TemplateBasedPostingBuilder {
         
         // 2. 필드별로 값 추출 (기본 템플릿 기반)
         Map<String, Object> postingData = new LinkedHashMap<>();
+
+        // 원본 order를 변경하지 않기 위해 딥카피 사용
+        Order item = order.deepCopy();
+
+        if(bulkDataType.equals("product_commission")){
+            item.setTotalProductAmount(-Math.abs(order.getCommissionAmount()));
+        }
+        if(bulkDataType.equals("product_shipping")){
+            item.setTotalProductAmount(order.getShippingFee());
+        }
+        if(bulkDataType.equals("product_shipping_commission")){
+            item.setTotalProductAmount(-Math.abs(order.getShippingCommissionAmount()));
+        }
         
         for (PostingTemplateField field : template.getFields()) {
             String fieldCode = field.getFieldCode();
             Object value = null;
-            
+            if(bulkDataType.equals("product_commission") || bulkDataType.equals("product_shipping_commission")){
+                if(fieldCode.equals("VAT_AMT")){
+                    System.out.println("VAT_AMT");
+                }
+            }
             // 매핑 규칙이 있으면 추출
             if (field.getMapping() != null) {
-                value = fieldValueExtractor.extractValue(field.getMapping(), order);
+                value = fieldValueExtractor.extractValue(field.getMapping(), item);
             }
             
             // 값이 없으면 기본값 사용
@@ -327,10 +353,21 @@ public class TemplateBasedPostingBuilder {
         }
         
         // 3. 필수 필드 자동 보충
-        supplementMissingFields(postingData, order);
-        
+        supplementMissingFields(postingData, item);
+
+        if(bulkDataType.equals("product_commission")){
+            postingData.put("PROD_CD", store.getCommissionItemCode());
+        }
+        if(bulkDataType.equals("product_shipping")){
+            postingData.put("PROD_CD", store.getShippingItemCode());
+        }
+        if(bulkDataType.equals("product_shipping_commission")){
+            postingData.put("PROD_CD", store.getShippingCommissionItemCode());
+        }
+
+
         // 4. bulkDataType에 따라 품목코드 및 금액 오버라이드
-        applyBulkDataTypeOverrides(postingData, order, store, bulkDataType);
+//        applyBulkDataTypeOverrides(postingData, order, store, bulkDataType);
         
         log.info("[BulkData 생성 완료] orderId={}, bulkDataType={}, 필드 개수={}", 
             order.getOrderId(), bulkDataType, postingData.size());
@@ -340,6 +377,12 @@ public class TemplateBasedPostingBuilder {
     
     /**
      * bulkDataType에 따라 품목코드 및 금액 오버라이드
+     * 
+     * 전표 구조는 템플릿을 따르되, 금액 계산 소스만 변경:
+     * - product_sales: 템플릿 기본값 사용
+     * - product_commission: commissionAmount 사용, 음수
+     * - product_shipping: shippingAmount 사용
+     * - product_shipping_commission: shippingCommissionAmount 사용, 음수
      * 
      * @param postingData 기본 전표 데이터
      * @param order 주문 정보
@@ -359,18 +402,40 @@ public class TemplateBasedPostingBuilder {
                 break;
                 
             case "product_commission":
-                // 상품수수료: commissionItemCode 사용, 금액은 음수
-                applyCommissionOverrides(postingData, order, store);
+                // 상품수수료: commissionAmount 기반으로 재계산 (음수)
+                recalculateAmountFields(
+                    postingData,
+                    store.getCommissionItemCode(),
+                    "상품수수료",
+                    order.getCommissionAmount(),
+                    true  // 음수 변환
+                );
                 break;
                 
             case "product_shipping":
-                // 배송비: shippingItemCode 사용, 금액은 배송비
-                applyShippingOverrides(postingData, order, store);
+                // 배송비: shippingAmount 기반으로 재계산
+                Long shippingAmount = order.getTotalShippingAmount();
+                if (shippingAmount == null || shippingAmount == 0) {
+                    shippingAmount = order.getShippingFee();
+                }
+                recalculateAmountFields(
+                    postingData,
+                    store.getShippingItemCode(),
+                    "배송비",
+                    shippingAmount,
+                    false  // 양수 유지
+                );
                 break;
                 
             case "product_shipping_commission":
-                // 배송비수수료: shippingCommissionItemCode 사용, 금액은 음수
-                applyShippingCommissionOverrides(postingData, order, store);
+                // 배송비수수료: shippingCommissionAmount 기반으로 재계산 (음수)
+                recalculateAmountFields(
+                    postingData,
+                    store.getShippingCommissionItemCode(),
+                    "배송비수수료",
+                    order.getShippingCommissionAmount(),
+                    true  // 음수 변환
+                );
                 break;
                 
             default:
@@ -379,111 +444,71 @@ public class TemplateBasedPostingBuilder {
     }
     
     /**
-     * 상품수수료 전표 오버라이드
+     * 금액 필드 재계산 (템플릿 생성 후 오버라이드)
+     * 
+     * 템플릿의 구조를 유지하되, 금액 계산에 사용되는 소스만 변경
+     * 
+     * @param postingData 전표 데이터
+     * @param itemCode ERP 품목코드
+     * @param itemName 품목 설명 (로그용)
+     * @param amount 금액 소스 (commissionAmount, shippingAmount 등)
+     * @param isNegative 음수 변환 여부
      */
-    private void applyCommissionOverrides(Map<String, Object> postingData, Order order, Store store) {
-        // 1. 품목코드 변경
-        if (store.getCommissionItemCode() == null || store.getCommissionItemCode().isEmpty()) {
+    private void recalculateAmountFields(
+            Map<String, Object> postingData,
+            String itemCode,
+            String itemName,
+            Long amount,
+            boolean isNegative) {
+        
+        // 1. 품목코드 검증 및 변경
+        if (itemCode == null || itemCode.isEmpty()) {
             throw new IllegalStateException(String.format(
-                "스토어에 상품수수료 품목코드가 설정되지 않았습니다. storeId=%s, storeName=%s",
-                store.getStoreId(), store.getStoreName()
+                "스토어에 %s 품목코드가 설정되지 않았습니다.",
+                itemName
             ));
         }
-        postingData.put("PROD_CD", store.getCommissionItemCode());
-//        postingData.put("PROD_DES", "상품판매수수료");
+        postingData.put("PROD_CD", itemCode);
         
-        // 2. 수량 1로 변경
+        // 2. 수량은 1로 고정
         postingData.put("QTY", 1);
         
-        // 3. 수수료 금액 (음수) - Order의 commissionAmount 사용
-        Long commission = order.getCommissionAmount();
-        if (commission == null || commission == 0) {
-            log.warn("[상품수수료 금액 없음] orderId={}", order.getOrderId());
-            commission = 0L;
-        }
-        long negativeCommission = -Math.abs(commission);
-        
-        postingData.put("SUPPLY_AMT", negativeCommission);
-        postingData.put("VAT_AMT", 0L);  // 수수료는 VAT 제외
-        postingData.put("USER_PRICE_VAT", negativeCommission);
-        postingData.put("P_AMT1", negativeCommission);
-        
-        log.info("[상품수수료 오버라이드 적용] orderId={}, itemCode={}, amount={}", 
-            order.getOrderId(), store.getCommissionItemCode(), negativeCommission);
-    }
-    
-    /**
-     * 배송비 전표 오버라이드
-     */
-    private void applyShippingOverrides(Map<String, Object> postingData, Order order, Store store) {
-        // 1. 품목코드 변경
-        if (store.getShippingItemCode() == null || store.getShippingItemCode().isEmpty()) {
-            throw new IllegalStateException(String.format(
-                "스토어에 배송비 품목코드가 설정되지 않았습니다. storeId=%s, storeName=%s",
-                store.getStoreId(), store.getStoreName()
-            ));
-        }
-        postingData.put("PROD_CD", store.getShippingItemCode());
-//        postingData.put("PROD_DES", "배송비");
-        
-        // 2. 수량 1로 변경
-        postingData.put("QTY", 1);
-        
-        // 3. 배송비 금액
-        Long shippingAmount = order.getTotalShippingAmount();
-        if (shippingAmount == null || shippingAmount == 0) {
-            shippingAmount = order.getShippingFee();
-        }
-        if (shippingAmount == null) {
-            shippingAmount = 0L;
+        // 3. 금액 계산
+        if (amount == null) {
+            log.warn("[{} 금액 없음]", itemName);
+            amount = 0L;
         }
         
-        // VAT 계산 (배송비도 VAT 포함 가정)
+        // 음수 변환 (수수료의 경우)
+        long finalAmount = isNegative ? -Math.abs(amount) : amount;
+        
+        // 4. VAT 계산 (모든 금액은 VAT 포함)
         BigDecimal vatRate = new BigDecimal("0.1");
-        long supplyAmt = calculateSupplyAmount(shippingAmount, vatRate);
-        long vatAmt = shippingAmount - supplyAmt;
+        long supplyAmt;
+        long vatAmt;
         
+        if (amount > 0) {
+            // VAT 포함 금액에서 공급가액과 VAT 분리
+            supplyAmt = calculateSupplyAmount(amount, vatRate);
+            vatAmt = amount - supplyAmt;
+            
+            if (isNegative) {
+                supplyAmt = -supplyAmt;
+                vatAmt = -vatAmt;
+            }
+        } else {
+            supplyAmt = 0L;
+            vatAmt = 0L;
+        }
+        
+        // 5. 금액 필드 설정 (템플릿 매핑 결과를 오버라이드)
         postingData.put("SUPPLY_AMT", supplyAmt);
         postingData.put("VAT_AMT", vatAmt);
-        postingData.put("USER_PRICE_VAT", shippingAmount);
-        postingData.put("P_AMT1", shippingAmount);
+        postingData.put("USER_PRICE_VAT", finalAmount);
+        postingData.put("P_AMT1", finalAmount);
         
-        log.info("[배송비 오버라이드 적용] orderId={}, itemCode={}, amount={}", 
-            order.getOrderId(), store.getShippingItemCode(), shippingAmount);
-    }
-    
-    /**
-     * 배송비수수료 전표 오버라이드
-     */
-    private void applyShippingCommissionOverrides(Map<String, Object> postingData, Order order, Store store) {
-        // 1. 품목코드 변경
-        if (store.getShippingCommissionItemCode() == null || store.getShippingCommissionItemCode().isEmpty()) {
-            throw new IllegalStateException(String.format(
-                "스토어에 배송비수수료 품목코드가 설정되지 않았습니다. storeId=%s, storeName=%s",
-                store.getStoreId(), store.getStoreName()
-            ));
-        }
-        postingData.put("PROD_CD", store.getShippingCommissionItemCode());
-//        postingData.put("PROD_DES", "배송비수수료");
-        
-        // 2. 수량 1로 변경
-        postingData.put("QTY", 1);
-        
-        // 3. 수수료 금액 (음수) - Order의 shippingCommissionAmount 사용
-        Long commission = order.getShippingCommissionAmount();
-        if (commission == null || commission == 0) {
-            log.warn("[배송비수수료 금액 없음] orderId={}", order.getOrderId());
-            commission = 0L;
-        }
-        long negativeCommission = -Math.abs(commission);
-        
-        postingData.put("SUPPLY_AMT", negativeCommission);
-        postingData.put("VAT_AMT", 0L);  // 수수료는 VAT 제외
-        postingData.put("USER_PRICE_VAT", negativeCommission);
-        postingData.put("P_AMT1", negativeCommission);
-        
-        log.info("[배송비수수료 오버라이드 적용] orderId={}, itemCode={}, amount={}", 
-            order.getOrderId(), store.getShippingCommissionItemCode(), negativeCommission);
+        log.info("[{} 금액 재계산] itemCode={}, amount={}, supplyAmt={}, vatAmt={}", 
+            itemName, itemCode, finalAmount, supplyAmt, vatAmt);
     }
     
     /**

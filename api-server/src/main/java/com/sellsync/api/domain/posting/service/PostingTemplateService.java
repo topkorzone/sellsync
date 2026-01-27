@@ -58,11 +58,11 @@ public class PostingTemplateService {
     }
     
     /**
-     * 템플릿 목록 조회
+     * 템플릿 목록 조회 (시스템 템플릿 포함)
      */
     @Transactional(readOnly = true)
     public List<PostingTemplateDto> getTemplateList(UUID tenantId) {
-        List<PostingTemplate> templates = templateRepository.findByTenantIdOrderByCreatedAtDesc(tenantId);
+        List<PostingTemplate> templates = templateRepository.findByTenantIdIncludingSystemTemplates(tenantId);
         
         return templates.stream()
             .map(PostingTemplateDto::fromWithoutFields)
@@ -70,12 +70,12 @@ public class PostingTemplateService {
     }
     
     /**
-     * 특정 ERP, PostingType 템플릿 목록
+     * 특정 ERP, PostingType 템플릿 목록 (시스템 템플릿 포함)
      */
     @Transactional(readOnly = true)
     public List<PostingTemplateDto> getTemplateListByType(UUID tenantId, String erpCode, PostingType postingType) {
         List<PostingTemplate> templates = templateRepository
-            .findByTenantIdAndErpCodeAndPostingTypeOrderByCreatedAtDesc(tenantId, erpCode, postingType);
+            .findByTenantIdAndErpCodeAndPostingTypeIncludingSystem(tenantId, erpCode, postingType);
         
         return templates.stream()
             .map(PostingTemplateDto::fromWithoutFields)
@@ -83,15 +83,15 @@ public class PostingTemplateService {
     }
     
     /**
-     * 템플릿 상세 조회 (필드 포함)
+     * 템플릿 상세 조회 (필드 포함, 시스템 템플릿 포함)
      */
     @Transactional(readOnly = true)
     public PostingTemplateDto getTemplate(UUID tenantId, UUID templateId) {
         PostingTemplate template = templateRepository.findByIdWithFields(templateId)
             .orElseThrow(() -> new PostingNotFoundException("템플릿을 찾을 수 없습니다: " + templateId));
         
-        // tenant 권한 검증
-        if (!template.getTenantId().equals(tenantId)) {
+        // tenant 권한 검증 (시스템 템플릿은 모두 접근 가능)
+        if (!template.getIsSystemTemplate() && !template.getTenantId().equals(tenantId)) {
             throw new IllegalArgumentException("접근 권한이 없습니다");
         }
         
@@ -99,12 +99,12 @@ public class PostingTemplateService {
     }
     
     /**
-     * 활성 템플릿 조회
+     * 활성 템플릿 조회 (시스템 템플릿 포함)
      */
     @Transactional(readOnly = true)
     public PostingTemplateDto getActiveTemplate(UUID tenantId, String erpCode, PostingType postingType) {
         PostingTemplate template = templateRepository
-            .findActiveTemplate(tenantId, erpCode, postingType)
+            .findActiveTemplateIncludingSystem(tenantId, erpCode, postingType)
             .orElseThrow(() -> new PostingNotFoundException(
                 String.format("활성 템플릿이 없습니다: erpCode=%s, postingType=%s", erpCode, postingType)
             ));
@@ -119,6 +119,11 @@ public class PostingTemplateService {
     public PostingTemplateDto updateTemplate(UUID tenantId, UUID templateId, UpdatePostingTemplateRequest request) {
         PostingTemplate template = templateRepository.findById(templateId)
             .orElseThrow(() -> new PostingNotFoundException("템플릿을 찾을 수 없습니다: " + templateId));
+        
+        // 시스템 템플릿은 수정 불가
+        if (template.getIsSystemTemplate()) {
+            throw new IllegalArgumentException("시스템 템플릿은 수정할 수 없습니다");
+        }
         
         // tenant 권한 검증
         if (!template.getTenantId().equals(tenantId)) {
@@ -151,6 +156,11 @@ public class PostingTemplateService {
     public PostingTemplateDto activateTemplate(UUID tenantId, UUID templateId) {
         PostingTemplate template = templateRepository.findById(templateId)
             .orElseThrow(() -> new PostingNotFoundException("템플릿을 찾을 수 없습니다: " + templateId));
+        
+        // 시스템 템플릿은 활성화/비활성화 불가
+        if (template.getIsSystemTemplate()) {
+            throw new IllegalArgumentException("시스템 템플릿은 활성화 상태를 변경할 수 없습니다");
+        }
         
         // tenant 권한 검증
         if (!template.getTenantId().equals(tenantId)) {
@@ -189,6 +199,11 @@ public class PostingTemplateService {
         PostingTemplate template = templateRepository.findById(templateId)
             .orElseThrow(() -> new PostingNotFoundException("템플릿을 찾을 수 없습니다: " + templateId));
         
+        // 시스템 템플릿은 삭제 불가
+        if (template.getIsSystemTemplate()) {
+            throw new IllegalArgumentException("시스템 템플릿은 삭제할 수 없습니다");
+        }
+        
         // tenant 권한 검증
         if (!template.getTenantId().equals(tenantId)) {
             throw new IllegalArgumentException("접근 권한이 없습니다");
@@ -211,6 +226,11 @@ public class PostingTemplateService {
     public PostingTemplateFieldDto addField(UUID tenantId, UUID templateId, AddTemplateFieldRequest request) {
         PostingTemplate template = templateRepository.findById(templateId)
             .orElseThrow(() -> new PostingNotFoundException("템플릿을 찾을 수 없습니다: " + templateId));
+        
+        // 시스템 템플릿은 필드 추가 불가
+        if (template.getIsSystemTemplate()) {
+            throw new IllegalArgumentException("시스템 템플릿은 수정할 수 없습니다");
+        }
         
         // tenant 권한 검증
         if (!template.getTenantId().equals(tenantId)) {
@@ -257,6 +277,11 @@ public class PostingTemplateService {
         PostingTemplateField field = fieldRepository.findById(fieldId)
             .orElseThrow(() -> new PostingNotFoundException("필드를 찾을 수 없습니다: " + fieldId));
         
+        // 시스템 템플릿은 필드 삭제 불가
+        if (field.getTemplate().getIsSystemTemplate()) {
+            throw new IllegalArgumentException("시스템 템플릿은 수정할 수 없습니다");
+        }
+        
         // tenant 권한 검증
         if (!field.getTemplate().getTenantId().equals(tenantId)) {
             throw new IllegalArgumentException("접근 권한이 없습니다");
@@ -274,6 +299,11 @@ public class PostingTemplateService {
     public PostingFieldMappingDto updateFieldMapping(UUID tenantId, UUID fieldId, UpdateFieldMappingRequest request) {
         PostingTemplateField field = fieldRepository.findByIdWithMapping(fieldId)
             .orElseThrow(() -> new PostingNotFoundException("필드를 찾을 수 없습니다: " + fieldId));
+        
+        // 시스템 템플릿은 필드 매핑 수정 불가
+        if (field.getTemplate().getIsSystemTemplate()) {
+            throw new IllegalArgumentException("시스템 템플릿은 수정할 수 없습니다");
+        }
         
         // tenant 권한 검증
         if (!field.getTemplate().getTenantId().equals(tenantId)) {

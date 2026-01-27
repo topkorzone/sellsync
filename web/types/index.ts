@@ -177,6 +177,8 @@ export type PostingType =
 export interface ErpDocument {
   documentId: string;
   orderId: string;
+  bundleOrderId?: string;  // 번들 주문 ID
+  buyerName?: string;  // 주문자명
   postingType: PostingType;
   postingStatus: PostingStatus;
   erpDocNo?: string;

@@ -21,6 +21,7 @@ public class SaleFormTemplateDto {
     private UUID tenantId;
     private String templateName;
     private Boolean isDefault;
+    private Boolean isSystemTemplate;
     private String description;
     
     // 기본값 필드

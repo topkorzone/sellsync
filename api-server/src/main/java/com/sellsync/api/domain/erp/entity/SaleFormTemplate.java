@@ -30,14 +30,17 @@ public class SaleFormTemplate extends BaseEntity {
     @Column(name = "id", updatable = false, nullable = false)
     private UUID id;
 
-    @Column(name = "tenant_id", nullable = false)
-    private UUID tenantId;
+    @Column(name = "tenant_id")
+    private UUID tenantId;              // 시스템 템플릿의 경우 NULL
 
     @Column(name = "template_name", nullable = false, length = 100)
     private String templateName;        // 템플릿 이름 (예: "기본 판매전표", "도매 전표")
 
     @Column(name = "is_default", nullable = false)
     private Boolean isDefault = false;  // 기본 템플릿 여부
+
+    @Column(name = "is_system_template", nullable = false)
+    private Boolean isSystemTemplate = false;  // 시스템 공용 템플릿 여부
 
     @Column(name = "description", length = 500)
     private String description;         // 템플릿 설명

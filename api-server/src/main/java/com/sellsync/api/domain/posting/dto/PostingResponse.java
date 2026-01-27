@@ -30,6 +30,7 @@ public class PostingResponse {
     private String marketplaceOrderId;
     private String bundleOrderId;  // 번들 주문 ID (Order에서 조회)
     private String marketplaceProductId; // 첫 번째 상품주문 ID
+    private String buyerName;  // 주문자명 (Order에서 조회)
     private PostingType postingType;
     private PostingStatus postingStatus;
     private String erpDocumentNo;
@@ -56,6 +57,11 @@ public class PostingResponse {
     // Setter for marketplaceProductId (needed for service layer)
     public void setMarketplaceProductId(String marketplaceProductId) {
         this.marketplaceProductId = marketplaceProductId;
+    }
+    
+    // Setter for buyerName (needed for service layer)
+    public void setBuyerName(String buyerName) {
+        this.buyerName = buyerName;
     }
 
     /**

@@ -40,22 +40,22 @@ public class SaleFormService {
     // ======================== 템플릿 관리 ========================
 
     /**
-     * 템플릿 목록 조회
+     * 템플릿 목록 조회 (시스템 템플릿 포함)
      */
     @Transactional(readOnly = true)
     public List<SaleFormTemplateDto> getTemplates(UUID tenantId) {
-        return templateRepository.findByTenantIdAndIsActiveTrueOrderByIsDefaultDescCreatedAtDesc(tenantId)
+        return templateRepository.findByTenantIdIncludingSystemTemplates(tenantId)
                 .stream()
                 .map(this::toTemplateDto)
                 .collect(Collectors.toList());
     }
 
     /**
-     * 기본 템플릿 조회
+     * 기본 템플릿 조회 (시스템 템플릿 포함)
      */
     @Transactional(readOnly = true)
     public SaleFormTemplateDto getDefaultTemplate(UUID tenantId) {
-        return templateRepository.findByTenantIdAndIsDefaultTrueAndIsActiveTrue(tenantId)
+        return templateRepository.findDefaultTemplateIncludingSystem(tenantId)
                 .map(this::toTemplateDto)
                 .orElse(null);
     }
@@ -103,6 +103,11 @@ public class SaleFormService {
     public SaleFormTemplateDto updateTemplate(UUID tenantId, UUID templateId, CreateSaleFormTemplateRequest request) {
         SaleFormTemplate template = templateRepository.findByIdAndTenantId(templateId, tenantId)
                 .orElseThrow(() -> new IllegalArgumentException("Template not found: " + templateId));
+        
+        // 시스템 템플릿은 수정 불가
+        if (Boolean.TRUE.equals(template.getIsSystemTemplate())) {
+            throw new IllegalArgumentException("시스템 템플릿은 수정할 수 없습니다");
+        }
 
         // 기본 템플릿으로 설정하는 경우, 기존 기본 템플릿 해제
         if (Boolean.TRUE.equals(request.getIsDefault()) && !template.getIsDefault()) {
@@ -137,6 +142,11 @@ public class SaleFormService {
     public void deleteTemplate(UUID tenantId, UUID templateId) {
         SaleFormTemplate template = templateRepository.findByIdAndTenantId(templateId, tenantId)
                 .orElseThrow(() -> new IllegalArgumentException("Template not found: " + templateId));
+        
+        // 시스템 템플릿은 삭제 불가
+        if (Boolean.TRUE.equals(template.getIsSystemTemplate())) {
+            throw new IllegalArgumentException("시스템 템플릿은 삭제할 수 없습니다");
+        }
 
         template.setIsActive(false);
         templateRepository.save(template);
@@ -332,6 +342,7 @@ public class SaleFormService {
                 .tenantId(template.getTenantId())
                 .templateName(template.getTemplateName())
                 .isDefault(template.getIsDefault())
+                .isSystemTemplate(template.getIsSystemTemplate())
                 .description(template.getDescription())
                 .defaultCustomerCode(template.getDefaultCustomerCode())
                 .defaultWarehouseCode(template.getDefaultWarehouseCode())

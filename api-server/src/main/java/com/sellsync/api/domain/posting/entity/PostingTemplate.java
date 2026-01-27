@@ -43,9 +43,9 @@ public class PostingTemplate extends BaseEntity {
     
     /**
      * 소유 tenant
+     * 시스템 템플릿의 경우 NULL
      */
-    @NotNull
-    @Column(name = "tenant_id", nullable = false)
+    @Column(name = "tenant_id")
     private UUID tenantId;
     
     /**
@@ -81,6 +81,15 @@ public class PostingTemplate extends BaseEntity {
     @Column(name = "is_active", nullable = false)
     @Builder.Default
     private Boolean isActive = false;
+    
+    /**
+     * 시스템 공용 템플릿 여부
+     * true: 모든 tenant 사용 가능, false: 특정 tenant 전용
+     */
+    @NotNull
+    @Column(name = "is_system_template", nullable = false)
+    @Builder.Default
+    private Boolean isSystemTemplate = false;
     
     /**
      * 설명

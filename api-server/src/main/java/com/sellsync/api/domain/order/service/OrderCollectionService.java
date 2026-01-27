@@ -488,6 +488,7 @@ public class OrderCollectionService {
      * 변경사항:
      * - 기존: line_no 기반 매칭 (마지막 상품만 저장되는 버그)
      * - 개선: marketplace_item_id 기반 매칭 (복수 상품 정상 처리)
+     * - 개선: DTO에 없는 아이템 제거 (orphanRemoval=true 활용)
      * 
      * @param order 주문 엔티티
      * @param itemDtos 마켓플레이스 주문 상품 DTO 목록
@@ -499,6 +500,17 @@ public class OrderCollectionService {
         // 기존 아이템 맵 (marketplace_item_id 기반)
         Map<String, OrderItem> existingItems = order.getItems().stream()
                 .collect(Collectors.toMap(OrderItem::getMarketplaceItemId, i -> i, (a, b) -> a));
+
+        // DTO에 있는 marketplace_item_id 수집 (제거할 아이템 판별용)
+        List<String> dtoItemIds = itemDtos.stream()
+                .map(MarketplaceOrderItemDto::getMarketplaceItemId)
+                .toList();
+
+        // DTO에 없는 기존 아이템 제거 (orphanRemoval=true로 자동 삭제)
+        order.getItems().removeIf(item -> !dtoItemIds.contains(item.getMarketplaceItemId()));
+        
+        log.debug("[OrderCollection] 주문 아이템 업데이트 - orderId={}, DTO아이템수={}, 기존아이템수={}", 
+                order.getOrderId(), itemDtos.size(), existingItems.size());
 
         int lineNo = 1;
         for (MarketplaceOrderItemDto dto : itemDtos) {
@@ -513,9 +525,11 @@ public class OrderCollectionService {
                 item.setLineNo(lineNo);
                 item.setMarketplaceItemId(dto.getMarketplaceItemId());  // ✅ 복합키 설정
                 order.getItems().add(item);
+                log.debug("[OrderCollection] 신규 아이템 추가 - marketplaceItemId={}", dto.getMarketplaceItemId());
             } else {
                 // 기존 아이템 업데이트 (line_no 갱신)
                 item.setLineNo(lineNo);
+                log.debug("[OrderCollection] 기존 아이템 업데이트 - marketplaceItemId={}", dto.getMarketplaceItemId());
             }
 
             // 필수 필드 업데이트

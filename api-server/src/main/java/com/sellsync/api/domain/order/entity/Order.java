@@ -211,8 +211,62 @@ public class Order {
     
     /**
      * 전표 생성 완료 마킹
+     * 정산이 완료되었으므로 정산예정 금액을 초기화함
      */
     public void markSettlementPosted() {
         this.settlementStatus = SettlementCollectionStatus.POSTED;
+        this.expectedSettlementAmount = null;  // 정산완료 시 정산예정 금액 초기화
+    }
+    
+    /**
+     * Order 객체의 딥카피 생성
+     * 전표 생성 시 원본 Order를 변경하지 않기 위해 사용
+     * 연관관계(items, claims)는 복사하지 않음
+     */
+    public Order deepCopy() {
+        return Order.builder()
+            .orderId(this.orderId)
+            .tenantId(this.tenantId)
+            .storeId(this.storeId)
+            .marketplace(this.marketplace)
+            .marketplaceOrderId(this.marketplaceOrderId)
+            .bundleOrderId(this.bundleOrderId)
+            .orderStatus(this.orderStatus)
+            .orderedAt(this.orderedAt)
+            .paidAt(this.paidAt)
+            .buyerName(this.buyerName)
+            .buyerPhone(this.buyerPhone)
+            .buyerId(this.buyerId)
+            .receiverName(this.receiverName)
+            .receiverPhone1(this.receiverPhone1)
+            .receiverPhone2(this.receiverPhone2)
+            .receiverZipCode(this.receiverZipCode)
+            .receiverAddress(this.receiverAddress)
+            .safeNumber(this.safeNumber)
+            .safeNumberType(this.safeNumberType)
+            .totalProductAmount(this.totalProductAmount)
+            .totalDiscountAmount(this.totalDiscountAmount)
+            .totalShippingAmount(this.totalShippingAmount)
+            .totalPaidAmount(this.totalPaidAmount)
+            .commissionAmount(this.commissionAmount)
+            .shippingCommissionAmount(this.shippingCommissionAmount)
+            .expectedSettlementAmount(this.expectedSettlementAmount)
+            .settlementStatus(this.settlementStatus)
+            .settlementCollectedAt(this.settlementCollectedAt)
+            .settlementDate(this.settlementDate)
+            .shippingFeeType(this.shippingFeeType)
+            .shippingFee(this.shippingFee)
+            .prepaidShippingFee(this.prepaidShippingFee)
+            .additionalShippingFee(this.additionalShippingFee)
+            .deliveryRequest(this.deliveryRequest)
+            .paymentMethod(this.paymentMethod)
+            .personalCustomsCode(this.personalCustomsCode)
+            .buyerMemo(this.buyerMemo)
+            .rawPayload(this.rawPayload)
+            .createdAt(this.createdAt)
+            .updatedAt(this.updatedAt)
+            .items(new ArrayList<>(this.items))  // 리스트는 새 인스턴스로 생성 (shallow copy)
+            .claims(new ArrayList<>(this.claims))
+            .build();
     }
 }

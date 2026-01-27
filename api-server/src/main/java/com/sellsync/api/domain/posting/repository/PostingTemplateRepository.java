@@ -76,4 +76,55 @@ public interface PostingTemplateRepository extends JpaRepository<PostingTemplate
         WHERE t.templateId = :templateId
         """)
     Optional<PostingTemplate> findByIdWithFields(@Param("templateId") UUID templateId);
+    
+    /**
+     * tenant의 모든 템플릿 조회 (시스템 템플릿 포함)
+     * 사용자 템플릿 우선, 그 다음 시스템 템플릿
+     */
+    @Query("""
+        SELECT t FROM PostingTemplate t
+        WHERE (t.tenantId = :tenantId OR t.isSystemTemplate = true)
+        ORDER BY t.isSystemTemplate ASC, t.createdAt DESC
+        """)
+    List<PostingTemplate> findByTenantIdIncludingSystemTemplates(@Param("tenantId") UUID tenantId);
+    
+    /**
+     * tenant의 특정 ERP, postingType 템플릿 목록 (시스템 템플릿 포함)
+     */
+    @Query("""
+        SELECT t FROM PostingTemplate t
+        WHERE (t.tenantId = :tenantId OR t.isSystemTemplate = true)
+        AND t.erpCode = :erpCode
+        AND t.postingType = :postingType
+        ORDER BY t.isSystemTemplate ASC, t.createdAt DESC
+        """)
+    List<PostingTemplate> findByTenantIdAndErpCodeAndPostingTypeIncludingSystem(
+        @Param("tenantId") UUID tenantId,
+        @Param("erpCode") String erpCode,
+        @Param("postingType") PostingType postingType
+    );
+    
+    /**
+     * 활성 템플릿 조회 (시스템 템플릿 포함, 사용자 템플릿 우선)
+     * 사용자의 활성 템플릿이 없으면 시스템 템플릿 반환
+     */
+    @Query("""
+        SELECT t FROM PostingTemplate t
+        WHERE (t.tenantId = :tenantId OR t.isSystemTemplate = true)
+        AND t.erpCode = :erpCode
+        AND t.postingType = :postingType
+        AND t.isActive = true
+        ORDER BY t.isSystemTemplate ASC, t.createdAt DESC
+        LIMIT 1
+        """)
+    Optional<PostingTemplate> findActiveTemplateIncludingSystem(
+        @Param("tenantId") UUID tenantId,
+        @Param("erpCode") String erpCode,
+        @Param("postingType") PostingType postingType
+    );
+    
+    /**
+     * 모든 시스템 템플릿 조회
+     */
+    List<PostingTemplate> findByIsSystemTemplateTrue();
 }
