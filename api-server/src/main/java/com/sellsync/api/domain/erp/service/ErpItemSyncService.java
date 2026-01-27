@@ -202,16 +202,19 @@ public class ErpItemSyncService {
      * ERP에서 전체 품목 조회 (페이징 처리)
      * - 대량의 품목을 처리하기 위해 페이징 방식으로 조회
      * - 첫 페이지 실패 시 빈 body로 재시도 (전체 조회)
+     * - 중복 데이터 감지로 무한 루프 방지
      */
     private List<ErpItemDto> fetchAllItems(UUID tenantId, ErpClient client) {
         log.info("[ErpItemSync] Fetching all items from ERP for tenant {}", tenantId);
         
         List<ErpItemDto> allItems = new ArrayList<>();
+        Set<String> fetchedItemCodes = new HashSet<>();  // 중복 감지용
         int pageSize = 500;  // 페이지당 500개씩 조회
         int currentPage = 1;
         boolean hasMore = true;
         int consecutiveErrors = 0;
         int maxConsecutiveErrors = 3;  // 연속 3회 실패 시 중단
+        int previousSize = 0;  // 이전 페이지 크기
         
         while (hasMore) {
             log.info("[ErpItemSync] Fetching page {} (size: {})", currentPage, pageSize);
@@ -231,17 +234,57 @@ public class ErpItemSyncService {
                     log.info("[ErpItemSync] No more items found at page {}", currentPage);
                     hasMore = false;
                 } else {
-                    allItems.addAll(pageItems);
-                    log.info("[ErpItemSync] Fetched {} items from page {} (total: {})", 
-                            pageItems.size(), currentPage, allItems.size());
+                    // 중복 데이터 감지 (Ecount API가 페이징을 무시하고 같은 데이터를 반환하는 경우)
+                    int duplicateCount = 0;
+                    int newItemCount = 0;
                     
+                    for (ErpItemDto item : pageItems) {
+                        String itemCode = item.getItemCode();
+                        if (fetchedItemCodes.contains(itemCode)) {
+                            duplicateCount++;
+                        } else {
+                            fetchedItemCodes.add(itemCode);
+                            allItems.add(item);
+                            newItemCount++;
+                        }
+                    }
+                    
+                    log.info("[ErpItemSync] Fetched page {}: {} items ({} new, {} duplicates, total unique: {})", 
+                            currentPage, pageItems.size(), newItemCount, duplicateCount, allItems.size());
+                    
+                    // 모든 데이터가 중복이면 더 이상 새 데이터가 없다는 의미
+                    if (newItemCount == 0) {
+                        log.info("[ErpItemSync] All items in page {} are duplicates - API is ignoring pagination. " +
+                                "Stopping here with {} unique items", currentPage, allItems.size());
+                        hasMore = false;
+                    }
                     // 가져온 개수가 pageSize보다 적으면 마지막 페이지
-                    if (pageItems.size() < pageSize) {
+                    else if (pageItems.size() < pageSize) {
                         log.info("[ErpItemSync] Last page reached (items: {} < pageSize: {})", 
                                 pageItems.size(), pageSize);
                         hasMore = false;
-                    } else {
+                    }
+                    // 이전 페이지와 크기가 같고, 대부분이 중복이면 (80% 이상) 페이징이 제대로 동작하지 않는 것으로 판단
+                    else if (currentPage > 1 && pageItems.size() == previousSize && 
+                            duplicateCount > pageItems.size() * 0.8) {
+                        log.warn("[ErpItemSync] Detected API pagination issue: page {} has same size ({}) as previous " +
+                                "and {}% duplicates. Stopping pagination.", 
+                                currentPage, pageItems.size(), (duplicateCount * 100 / pageItems.size()));
+                        hasMore = false;
+                    }
+                    else {
+                        previousSize = pageItems.size();
                         currentPage++;
+                        
+                        // 운영 환경 안정성을 위해 페이지 간 짧은 딜레이 추가 (rate limiting 회피)
+                        if (hasMore) {
+                            try {
+                                Thread.sleep(300);  // 300ms 대기
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                                log.warn("[ErpItemSync] Sleep interrupted between pages");
+                            }
+                        }
                     }
                 }
             } catch (Exception e) {
@@ -255,13 +298,13 @@ public class ErpItemSyncService {
                 
                 if (is412Error && !allItems.isEmpty()) {
                     log.info("[ErpItemSync] Received 412 Precondition Failed - no more pages available. " +
-                            "Successfully fetched {} items from {} pages", allItems.size(), currentPage - 1);
+                            "Successfully fetched {} unique items from {} pages", allItems.size(), currentPage - 1);
                     hasMore = false;
                     break;
                 }
                 
                 // 첫 페이지 실패 시 빈 body로 전체 조회 시도
-                if (currentPage == 1 && consecutiveErrors == 1) {
+                if (currentPage == 1) {
                     log.warn("[ErpItemSync] First page failed, trying to fetch all items without paging...");
                     try {
                         // 빈 request로 전체 조회
@@ -287,19 +330,19 @@ public class ErpItemSyncService {
                     if (allItems.isEmpty()) {
                         throw e; // 아무것도 가져오지 못했으면 예외를 던짐
                     } else {
-                        log.warn("[ErpItemSync] Returning {} items fetched so far", allItems.size());
+                        log.warn("[ErpItemSync] Returning {} unique items fetched so far", allItems.size());
                         hasMore = false;
                     }
                 } else {
                     // 중간 페이지 실패 시 지금까지 가져온 데이터를 반환
-                    log.warn("[ErpItemSync] Stopping at page {} due to error. Total fetched: {}", 
+                    log.warn("[ErpItemSync] Stopping at page {} due to error. Total unique items fetched: {}", 
                             currentPage, allItems.size());
                     hasMore = false;
                 }
             }
         }
         
-        log.info("[ErpItemSync] Completed fetching all items. Total: {}", allItems.size());
+        log.info("[ErpItemSync] Completed fetching all items. Total unique: {}", allItems.size());
         return allItems;
     }
 
