@@ -482,12 +482,35 @@ public class ProductMappingService {
     @Transactional(readOnly = true)
     public Optional<ProductMappingResponse> findActiveMapping(UUID tenantId, UUID storeId, Marketplace marketplace, 
                                                                 String productId, String sku) {
-        return productMappingRepository.findByTenantIdAndStoreIdAndMarketplaceAndMarketplaceProductIdAndMarketplaceSku(
+        log.debug("[매핑 조회 시작] tenantId={}, storeId={}, marketplace={}, productId={}, sku={}", 
+                tenantId, storeId, marketplace, productId, sku);
+        
+        Optional<ProductMapping> found = productMappingRepository.findByTenantIdAndStoreIdAndMarketplaceAndMarketplaceProductIdAndMarketplaceSku(
                 tenantId, storeId, marketplace, productId, sku
-        )
-        .filter(ProductMapping::getIsActive)
-        .filter(mapping -> mapping.getMappingStatus() == com.sellsync.api.domain.mapping.enums.MappingStatus.MAPPED)
-        .map(ProductMappingResponse::from);
+        );
+        
+        if (found.isEmpty()) {
+            log.warn("[매핑 조회] ❌ DB에서 매핑을 찾을 수 없음: productId={}, sku={}", productId, sku);
+            return Optional.empty();
+        }
+        
+        ProductMapping mapping = found.get();
+        log.debug("[매핑 조회] DB 조회 성공: mappingId={}, isActive={}, mappingStatus={}, erpItemCode={}", 
+                mapping.getProductMappingId(), mapping.getIsActive(), mapping.getMappingStatus(), mapping.getErpItemCode());
+        
+        if (!mapping.getIsActive()) {
+            log.warn("[매핑 조회] ❌ 비활성 상태: mappingId={}, isActive=false", mapping.getProductMappingId());
+            return Optional.empty();
+        }
+        
+        if (mapping.getMappingStatus() != com.sellsync.api.domain.mapping.enums.MappingStatus.MAPPED) {
+            log.warn("[매핑 조회] ❌ 매핑 미완료 상태: mappingId={}, mappingStatus={}", 
+                    mapping.getProductMappingId(), mapping.getMappingStatus());
+            return Optional.empty();
+        }
+        
+        log.debug("[매핑 조회] ✅ 성공: mappingId={}, erpItemCode={}", mapping.getProductMappingId(), mapping.getErpItemCode());
+        return Optional.of(ProductMappingResponse.from(mapping));
     }
 
     /**

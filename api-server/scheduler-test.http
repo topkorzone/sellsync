@@ -17,7 +17,8 @@
 ### - 로그인 API: POST http://localhost:8080/api/auth/login
 ### ============================================
 
-@baseUrl = http://localhost:8080/api/test/scheduler
+#@baseUrl = http://localhost:8080/api/test/scheduler
+@baseUrl = https://api.sell-sync.biz/api/test/scheduler
 
 # JWT 토큰 (다른 인증 필요 API 테스트 시 사용)
 # 로그인 후 받은 accessToken을 여기에 입력하세요
@@ -149,6 +150,7 @@ POST {{baseUrl}}/order-collection
 ### Step 2: 정산 수집 (Step 1 완료 후 실행)
 # 잠시 대기...
 POST {{baseUrl}}/settlement/collect
+
 
 ### Step 3: 정산 전표 생성 (Step 2 완료 후 실행)
 # 잠시 대기...

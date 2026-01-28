@@ -538,9 +538,13 @@ public class SettlementScheduler {
             
             for (OrderItem item : order.getItems()) {
 
-                log.info("[품목 매핑 체크] ✅ 매핑 확인: getMarketplaceProductId={}, getMarketplaceSku={}",
+                log.info("[품목 매핑 체크] 🔍 조회 조건: tenantId={}, storeId={}, marketplace={}, productId={}, sku={}",
+                  order.getTenantId(),
+                  order.getStoreId(),
+                  order.getMarketplace(),
                   item.getMarketplaceProductId(),
                   item.getMarketplaceSku());
+                  
                   java.util.Optional<com.sellsync.api.domain.mapping.dto.ProductMappingResponse> mapping =
                         productMappingService.findActiveMapping(
                             order.getTenantId(),
@@ -559,11 +563,12 @@ public class SettlementScheduler {
                         order.getOrderId(), item.getMarketplaceProductId(), item.getMarketplaceSku());
                 } else {
                     mappedItemCount++;
-                    log.info("[품목 매핑 체크] ✅ 매핑 확인: orderId={}, productId={}, sku={} → erpItemCode={}", 
+                    log.info("[품목 매핑 체크] ✅ 매핑 성공: orderId={}, productId={}, sku={} → erpItemCode={}, mappingStatus={}", 
                         order.getOrderId(), 
                         item.getMarketplaceProductId(), 
                         item.getMarketplaceSku(),
-                        mapping.get().getErpItemCode());
+                        mapping.get().getErpItemCode(),
+                        mapping.get().getMappingStatus());
                 }
             }
         }
