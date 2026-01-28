@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, HelpCircle, ExternalLink } from 'lucide-react';
+import { ContextHelp } from '@/components/help';
 import type { SetupErpRequest } from '@/types';
 
 interface ErpSetupStepProps {
@@ -60,43 +61,79 @@ export function ErpSetupStep({ onNext, onSkip, onTest, isLoading }: ErpSetupStep
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {/* 안내 메시지 */}
+        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-start gap-3">
+            <HelpCircle className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+            <div className="space-y-2">
+              <h4 className="font-semibold text-blue-900">API 인증키 발급 방법</h4>
+              <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
+                <li>Ecount ERP 로그인</li>
+                <li>Self-Customizing → 정보관리 → API 인증키관리 이동</li>
+                <li>API 인증키 발급 (발급된 키는 안전하게 보관)</li>
+              </ol>
+              <a
+                href="https://www.ecount.co.kr"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 font-medium"
+              >
+                이카운트 ERP 바로가기
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
+          </div>
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="companyCode">회사코드 *</Label>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="companyCode">회사코드 *</Label>
+              <ContextHelp content="Ecount 로그인 시 사용하는 회사코드를 입력하세요" />
+            </div>
             <Input
               id="companyCode"
               value={formData.companyCode}
               onChange={(e) => setFormData({ ...formData, companyCode: e.target.value })}
-              placeholder="이카운트 회사코드"
+              placeholder="예: COM_001"
               required
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="userId">사용자ID *</Label>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="userId">사용자ID *</Label>
+              <ContextHelp content="Ecount 사용자 ID를 입력하세요" />
+            </div>
             <Input
               id="userId"
               value={formData.userId}
               onChange={(e) => setFormData({ ...formData, userId: e.target.value })}
-              placeholder="이카운트 사용자ID"
+              placeholder="예: admin"
               required
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="apiKey">API Key *</Label>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="apiKey">API 인증키 *</Label>
+              <ContextHelp content="위 안내에 따라 발급받은 API 인증키를 입력하세요" />
+            </div>
             <Input
               id="apiKey"
               type="password"
               value={formData.apiKey}
               onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
-              placeholder="이카운트 API Key"
+              placeholder="API 인증키 입력"
               required
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="defaultWarehouseCode">기본 창고코드</Label>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="defaultWarehouseCode">기본 창고코드</Label>
+              <ContextHelp content="ERP > 기초정보관리 > 창고등록에서 확인 가능합니다. 기본값은 100입니다." />
+            </div>
             <Input
               id="defaultWarehouseCode"
               value={formData.defaultWarehouseCode}

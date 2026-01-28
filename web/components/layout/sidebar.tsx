@@ -14,7 +14,9 @@ import {
   Edit3, 
   FileCode,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  HelpCircle,
+  BookOpen
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSidebarStore } from '@/lib/stores/sidebar-store';
@@ -33,6 +35,11 @@ const NAV_ITEMS = [
   { label: '동기화', href: '/sync', icon: RefreshCw },
   { label: '연동 설정', href: '/settings/integrations', icon: Plug },
   { label: '설정', href: '/settings/profile', icon: Settings },
+];
+
+const HELP_ITEMS = [
+  { label: '사용자 가이드', href: '/help/guide', icon: BookOpen },
+  { label: '자주 묻는 질문', href: '/help/faq', icon: HelpCircle },
 ];
 
 // 네비게이션 아이템 컴포넌트 (재사용)
@@ -133,6 +140,31 @@ function SidebarContent({
           })}
         </TooltipProvider>
       </nav>
+
+      {/* 도움말 섹션 */}
+      {!isCollapsed && (
+        <div className="pt-4 mt-4 border-t border-gray-100">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-3">
+            도움말
+          </p>
+          <nav className="space-y-1">
+            <TooltipProvider>
+              {HELP_ITEMS.map((item) => {
+                const isActive = pathname.startsWith(item.href);
+                return (
+                  <NavItem 
+                    key={item.href} 
+                    item={item} 
+                    isActive={isActive} 
+                    isCollapsed={false}
+                    onClick={onNavClick}
+                  />
+                );
+              })}
+            </TooltipProvider>
+          </nav>
+        </div>
+      )}
     </div>
   );
 }

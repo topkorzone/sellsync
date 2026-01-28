@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { PageHeader } from '@/components/layout';
 import { Loading } from '@/components/common';
+import { QuickStartGuide } from '@/components/help';
 import { dashboardApi, postingsApi, mappingsApi, shipmentsApi } from '@/lib/api';
 import { formatNumber, formatDate } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -121,6 +122,47 @@ export default function DashboardPage() {
           새로고침
         </Button>
       </div>
+
+      {/* 빠른 시작 가이드 */}
+      <QuickStartGuide
+        steps={[
+          {
+            id: 'erp',
+            title: 'ERP 연동 설정',
+            description: 'Ecount ERP API 인증키를 등록하세요',
+            link: '/settings/integrations?tab=erp',
+            completed: !!summary?.erpConnected,
+          },
+          {
+            id: 'store',
+            title: '쇼핑몰 연동',
+            description: '네이버 스마트스토어, 쿠팡 등을 연동하세요',
+            link: '/settings/integrations?tab=stores',
+            completed: !!summary?.storesConnected && summary.storesConnected > 0,
+          },
+          {
+            id: 'sync-items',
+            title: 'ERP 품목 동기화',
+            description: '상품 매핑을 위해 ERP 품목을 가져오세요',
+            link: '/sync',
+            completed: !!summary?.itemsSynced,
+          },
+          {
+            id: 'mapping',
+            title: '상품 매핑',
+            description: '쇼핑몰 상품과 ERP 품목을 연결하세요',
+            link: '/mappings',
+            completed: (mappings?.unmapped || 0) === 0 && (mappings?.total || 0) > 0,
+          },
+          {
+            id: 'sync-orders',
+            title: '주문 동기화',
+            description: '첫 주문을 수집하고 전표를 생성하세요',
+            link: '/sync',
+            completed: !!summary?.todayOrders && summary.todayOrders > 0,
+          },
+        ]}
+      />
 
       {/* 주요 통계 카드 */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

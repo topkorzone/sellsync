@@ -192,6 +192,33 @@ public class PostingTemplateService {
     }
     
     /**
+     * 템플릿 비활성화
+     */
+    @Transactional
+    public PostingTemplateDto deactivateTemplate(UUID tenantId, UUID templateId) {
+        PostingTemplate template = templateRepository.findById(templateId)
+            .orElseThrow(() -> new PostingNotFoundException("템플릿을 찾을 수 없습니다: " + templateId));
+        
+        // 시스템 템플릿은 활성화/비활성화 불가
+        if (template.getIsSystemTemplate()) {
+            throw new IllegalArgumentException("시스템 템플릿은 비활성화할 수 없습니다");
+        }
+        
+        // tenant 권한 검증
+        if (!template.getTenantId().equals(tenantId)) {
+            throw new IllegalArgumentException("접근 권한이 없습니다");
+        }
+        
+        // 템플릿 비활성화
+        template.deactivate();
+        PostingTemplate saved = templateRepository.save(template);
+        
+        log.info("[템플릿 비활성화 완료] templateId={}", templateId);
+        
+        return PostingTemplateDto.fromWithoutFields(saved);
+    }
+    
+    /**
      * 템플릿 삭제
      */
     @Transactional

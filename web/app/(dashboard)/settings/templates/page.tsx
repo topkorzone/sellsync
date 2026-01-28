@@ -64,6 +64,18 @@ export default function TemplatesPage() {
     },
   });
 
+  // 템플릿 비활성화
+  const deactivateMutation = useMutation({
+    mutationFn: (templateId: string) => templatesApi.deactivate(templateId),
+    onSuccess: () => {
+      toast.success('템플릿이 비활성화되었습니다');
+      queryClient.invalidateQueries({ queryKey: ['templates'] });
+    },
+    onError: () => {
+      toast.error('템플릿 비활성화에 실패했습니다');
+    },
+  });
+
   // 템플릿 생성
   const createMutation = useMutation({
     mutationFn: (request: CreateTemplateRequest) => templatesApi.create(request),
@@ -110,6 +122,12 @@ export default function TemplatesPage() {
   const handleActivate = (template: PostingTemplate) => {
     if (confirm(`"${template.templateName}" 템플릿을 활성화하시겠습니까?\n기존 활성 템플릿은 자동으로 비활성화됩니다.`)) {
       activateMutation.mutate(template.templateId);
+    }
+  };
+
+  const handleDeactivate = (template: PostingTemplate) => {
+    if (confirm(`"${template.templateName}" 템플릿을 비활성화하시겠습니까?`)) {
+      deactivateMutation.mutate(template.templateId);
     }
   };
 
@@ -187,7 +205,16 @@ export default function TemplatesPage() {
                   <TableCell>{formatDate(template.createdAt)}</TableCell>
                   <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-2">
-                      {!template.isActive && (
+                      {template.isActive ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDeactivate(template)}
+                          disabled={deactivateMutation.isPending}
+                        >
+                          비활성화
+                        </Button>
+                      ) : (
                         <Button
                           variant="outline"
                           size="sm"

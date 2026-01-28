@@ -32,6 +32,7 @@ import java.util.UUID;
  * - PUT    /api/posting-templates/{id}                         : 템플릿 수정
  * - DELETE /api/posting-templates/{id}                         : 템플릿 삭제
  * - POST   /api/posting-templates/{id}/activate                : 템플릿 활성화
+ * - POST   /api/posting-templates/{id}/deactivate              : 템플릿 비활성화
  * - POST   /api/posting-templates/{id}/fields                  : 필드 추가
  * - DELETE /api/posting-templates/{templateId}/fields/{fieldId} : 필드 삭제
  * - PUT    /api/posting-templates/fields/{fieldId}/mapping     : 필드 매핑 설정
@@ -196,6 +197,27 @@ public class PostingTemplateController {
         response.put("ok", true);
         response.put("data", template);
         response.put("message", "템플릿이 활성화되었습니다");
+        
+        return ResponseEntity.ok(response);
+    }
+    
+    /**
+     * 템플릿 비활성화
+     */
+    @PostMapping("/{templateId}/deactivate")
+    @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'ADMIN', 'MANAGER', 'USER')")
+    public ResponseEntity<Map<String, Object>> deactivateTemplate(
+        @AuthenticationPrincipal CustomUserDetails userDetails,
+        @PathVariable UUID templateId
+    ) {
+        UUID tenantId = userDetails.getTenantId();
+        
+        PostingTemplateDto template = templateService.deactivateTemplate(tenantId, templateId);
+        
+        Map<String, Object> response = new HashMap<>();
+        response.put("ok", true);
+        response.put("data", template);
+        response.put("message", "템플릿이 비활성화되었습니다");
         
         return ResponseEntity.ok(response);
     }

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Store as StoreIcon, Settings, Trash2, Power, PowerOff, Database, Zap, ZapOff, Building2, DollarSign } from 'lucide-react';
+import { Plus, Store as StoreIcon, Settings, Trash2, Power, PowerOff, Database, Zap, ZapOff, Building2, DollarSign, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -572,15 +572,22 @@ export default function IntegrationsPage() {
 
                   {/* 안내 메시지 */}
                   <div className="rounded-lg bg-muted p-4">
-                    <div className="flex gap-2">
-                      <div className="text-sm text-muted-foreground">
-                        <p className="font-medium text-foreground mb-2">📌 안내사항</p>
-                        <ul className="space-y-1 list-disc list-inside">
-                          <li>모든 정보는 암호화되어 안전하게 저장됩니다</li>
-                          <li>API 인증키는 ECOUNT Self-Customizing에서 발급받을 수 있습니다</li>
-                          <li>정보 입력 후 &quot;ERP 연동 테스트&quot; 버튼으로 연결을 확인하세요</li>
-                        </ul>
-                      </div>
+                    <div className="text-sm text-muted-foreground">
+                      <p className="font-medium text-foreground mb-2">📌 안내사항</p>
+                      <ul className="space-y-1 list-disc list-inside mb-3">
+                        <li>모든 정보는 암호화되어 안전하게 저장됩니다</li>
+                        <li>API 인증키는 ECOUNT Self-Customizing에서 발급받을 수 있습니다</li>
+                        <li>정보 입력 후 &quot;ERP 연동 테스트&quot; 버튼으로 연결을 확인하세요</li>
+                      </ul>
+                      <a
+                        href="https://www.ecount.co.kr"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        이카운트 ERP 바로가기
+                      </a>
                     </div>
                   </div>
 
@@ -1290,11 +1297,20 @@ export default function IntegrationsPage() {
                 <div className="rounded-lg bg-muted p-4">
                   <div className="text-sm text-muted-foreground">
                     <p className="font-medium text-foreground mb-2">📌 안내사항</p>
-                    <ul className="space-y-1 list-disc list-inside">
+                    <ul className="space-y-1 list-disc list-inside mb-3">
                       <li>네이버 커머스 API 센터에서 애플리케이션을 등록해야 합니다</li>
                       <li>스마트스토어센터 &gt; 스토어관리 &gt; 판매자 정보에서 확인 가능</li>
                       <li>모든 정보는 암호화되어 안전하게 저장됩니다</li>
                     </ul>
+                    <a
+                      href="https://apicenter.commerce.naver.com"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      네이버 커머스 API 센터에서 키 발급받기
+                    </a>
                   </div>
                 </div>
               </div>
@@ -1362,11 +1378,20 @@ export default function IntegrationsPage() {
                 <div className="rounded-lg bg-muted p-4">
                   <div className="text-sm text-muted-foreground">
                     <p className="font-medium text-foreground mb-2">📌 안내사항</p>
-                    <ul className="space-y-1 list-disc list-inside">
+                    <ul className="space-y-1 list-disc list-inside mb-3">
                       <li>쿠팡 Wing 파트너센터에서 API 키를 발급받아야 합니다</li>
                       <li>Wing &gt; 설정 &gt; OpenAPI 설정에서 확인 가능</li>
                       <li>모든 정보는 암호화되어 안전하게 저장됩니다</li>
                     </ul>
+                    <a
+                      href="https://wing.coupang.com"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      쿠팡 Wing에서 API 키 발급받기
+                    </a>
                   </div>
                 </div>
               </div>

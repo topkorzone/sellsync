@@ -132,6 +132,16 @@ export const templatesApi = {
   },
 
   /**
+   * 템플릿 비활성화
+   */
+  deactivate: async (templateId: string) => {
+    const { data } = await apiClient.post<ApiResponse<PostingTemplate>>(
+      `/posting-templates/${templateId}/deactivate`
+    );
+    return data;
+  },
+
+  /**
    * 필드 추가
    */
   addField: async (templateId: string, request: AddFieldRequest) => {

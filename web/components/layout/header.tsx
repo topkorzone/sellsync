@@ -1,7 +1,8 @@
 'use client';
 
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogOut, User, Menu } from 'lucide-react';
+import { LogOut, User, Menu, HelpCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
@@ -15,11 +16,13 @@ import {
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { useSidebarStore } from '@/lib/stores/sidebar-store';
 import { authApi } from '@/lib/api';
+import { HelpPanel } from '@/components/help';
 
 export function Header() {
   const router = useRouter();
   const { user, clearAuth } = useAuthStore();
   const { openMobile } = useSidebarStore();
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const handleLogout = async () => {
     try {
@@ -32,25 +35,39 @@ export function Header() {
   };
 
   return (
-    <header className="h-16 border-b border-gray-100 bg-white/80 backdrop-blur-sm px-4 lg:px-6 flex items-center justify-between sticky top-0 z-10">
-      <div className="flex items-center gap-3">
-        {/* 모바일 햄버거 메뉴 버튼 */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="lg:hidden"
-          onClick={openMobile}
-          aria-label="메뉴 열기"
-        >
-          <Menu className="h-5 w-5" />
-        </Button>
-        
-        <div>
-          <h2 className="text-base font-semibold text-gray-900">{user?.tenantName}</h2>
-          <p className="text-xs text-gray-500 hidden sm:block">테넌트 대시보드</p>
+    <>
+      <header className="h-16 border-b border-gray-100 bg-white/80 backdrop-blur-sm px-4 lg:px-6 flex items-center justify-between sticky top-0 z-10">
+        <div className="flex items-center gap-3">
+          {/* 모바일 햄버거 메뉴 버튼 */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="lg:hidden"
+            onClick={openMobile}
+            aria-label="메뉴 열기"
+          >
+            <Menu className="h-5 w-5" />
+          </Button>
+          
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">{user?.tenantName}</h2>
+            <p className="text-xs text-gray-500 hidden sm:block">테넌트 대시보드</p>
+          </div>
         </div>
-      </div>
-      <DropdownMenu>
+        
+        <div className="flex items-center gap-2">
+          {/* 도움말 버튼 */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setHelpOpen(true)}
+            aria-label="도움말"
+            className="text-gray-600 hover:text-gray-900"
+          >
+            <HelpCircle className="h-5 w-5" />
+          </Button>
+          
+          <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button 
             variant="ghost" 
@@ -86,6 +103,10 @@ export function Header() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-    </header>
+        </div>
+      </header>
+      
+      <HelpPanel open={helpOpen} onOpenChange={setHelpOpen} />
+    </>
   );
 }
