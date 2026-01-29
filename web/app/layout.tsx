@@ -16,6 +16,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ko" suppressHydrationWarning>
+      <head>
+        <script src="https://js.tosspayments.com/v2/standard" defer />
+      </head>
       <body className={inter.className} suppressHydrationWarning>
         {children}
       </body>

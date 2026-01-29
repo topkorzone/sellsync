@@ -2,21 +2,23 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { 
-  LayoutDashboard, 
-  ShoppingCart, 
-  FileText, 
-  Link2, 
-  Truck, 
-  RefreshCw, 
-  Settings, 
-  Plug, 
-  Edit3, 
+import {
+  LayoutDashboard,
+  ShoppingCart,
+  FileText,
+  Link2,
+  Truck,
+  RefreshCw,
+  Settings,
+  Plug,
+  Edit3,
   FileCode,
   ChevronLeft,
   ChevronRight,
   HelpCircle,
-  BookOpen
+  BookOpen,
+  CreditCard,
+  Crown
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSidebarStore } from '@/lib/stores/sidebar-store';
@@ -34,6 +36,8 @@ const NAV_ITEMS = [
   { label: '송장 관리', href: '/shipments', icon: Truck },
   { label: '동기화', href: '/sync', icon: RefreshCw },
   { label: '연동 설정', href: '/settings/integrations', icon: Plug },
+  { label: '구독 관리', href: '/settings/subscription', icon: Crown },
+  { label: '결제 관리', href: '/settings/billing', icon: CreditCard },
   { label: '설정', href: '/settings/profile', icon: Settings },
 ];
 

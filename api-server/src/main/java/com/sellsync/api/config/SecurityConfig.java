@@ -66,6 +66,12 @@ public class SecurityConfig {
                         
                         // 테스트 API (개발 환경에서만 활성화됨 - @ConditionalOnProperty로 제어)
                         .requestMatchers("/api/test/**").permitAll()
+
+                        // 구독/결제 웹훅 (인증 불필요)
+                        .requestMatchers("/api/billing/webhook/**").permitAll()
+
+                        // 요금제 조회 (비로그인 접근 가능)
+                        .requestMatchers(HttpMethod.GET, "/api/subscriptions/plans").permitAll()
                         
                         // 그 외 모든 요청은 인증 필요
                         .anyRequest().authenticated()

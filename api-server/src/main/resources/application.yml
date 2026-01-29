@@ -16,6 +16,14 @@ spring:
     allow-circular-references: false
 
   # ============================================================
+  # SQL 초기화 (Flyway 비활성화 시 schema.sql / data.sql 사용)
+  # ============================================================
+  sql:
+    init:
+      mode: always
+      continue-on-error: true
+
+  # ============================================================
   # JPA / Hibernate (공통)
   # ============================================================
   jpa:
@@ -125,6 +133,15 @@ ecount:
     base-url: https://oapi.ecount.com
     connect-timeout: 5000
     read-timeout: 30000
+
+# ============================================================
+# 토스페이먼츠
+# ============================================================
+toss:
+  secret-key: ${TOSS_SECRET_KEY:test_sk_placeholder}
+  client-key: ${TOSS_CLIENT_KEY:test_ck_placeholder}
+  billing-url: https://api.tosspayments.com/v1/billing
+  payment-url: https://api.tosspayments.com/v1/payments
 
 # ============================================================
 # Scheduler (공통 기본값)

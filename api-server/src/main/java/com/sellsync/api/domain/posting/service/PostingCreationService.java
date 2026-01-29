@@ -8,6 +8,7 @@ import com.sellsync.api.domain.order.entity.OrderItem;
 import com.sellsync.api.domain.posting.dto.CreatePostingRequest;
 import com.sellsync.api.domain.posting.dto.PostingResponse;
 import com.sellsync.api.domain.posting.enums.PostingType;
+import com.sellsync.api.domain.subscription.service.SubscriptionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,7 @@ public class PostingCreationService {
     private final PostingService postingService;
     private final ProductMappingService productMappingService;
     private final TemplateBasedPostingBuilder templateBasedPostingBuilder;
+    private final SubscriptionService subscriptionService;
 
     /**
      * 주문 기반 전표 생성 (PRODUCT_SALES + SHIPPING_FEE)
@@ -47,7 +49,12 @@ public class PostingCreationService {
     public List<PostingResponse> createPostingsFromOrder(Order order, String erpCode) {
         List<PostingResponse> postings = new ArrayList<>();
 
-        log.info("[전표 생성 시작] orderId={}, marketplace={}, erpCode={}", 
+        // 구독 상태 검증 (ACTIVE/TRIAL만 허용)
+        subscriptionService.checkSubscriptionAccess(order.getTenantId());
+        // 체험 전표 생성 제한 체크
+        subscriptionService.checkTrialPostingLimit(order.getTenantId());
+
+        log.info("[전표 생성 시작] orderId={}, marketplace={}, erpCode={}",
             order.getOrderId(), order.getMarketplace(), erpCode);
 
         // 1. PRODUCT_SALES 전표 생성
@@ -67,6 +74,9 @@ public class PostingCreationService {
         }
 
         log.info("[전표 생성 완료] orderId={}, 생성된 전표 수={}", order.getOrderId(), postings.size());
+
+        // 체험 전표 카운트 증가 (TRIAL인 경우만)
+        subscriptionService.incrementTrialPostingCount(order.getTenantId());
 
         return postings;
     }

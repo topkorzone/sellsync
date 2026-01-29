@@ -11,3 +11,4 @@ export * from './dashboard';
 export * from './integration';
 export * from './erp';
 export * from './templates';
+export * from './subscription';
