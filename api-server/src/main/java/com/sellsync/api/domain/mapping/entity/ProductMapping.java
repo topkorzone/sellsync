@@ -116,6 +116,16 @@ public class ProductMapping extends BaseEntity {
     @Column(name = "mapping_note", columnDefinition = "TEXT")
     private String mappingNote;
 
+    // ========== 수수료 정보 (쿠팡 전용) ==========
+    @Column(name = "commission_rate", precision = 5, scale = 2)
+    private BigDecimal commissionRate;
+
+    @Column(name = "display_category_code", length = 50)
+    private String displayCategoryCode;
+
+    @Column(name = "marketplace_seller_product_id", length = 50)
+    private String marketplaceSellerProductId;
+
     // ========== Business Methods ==========
 
     /**

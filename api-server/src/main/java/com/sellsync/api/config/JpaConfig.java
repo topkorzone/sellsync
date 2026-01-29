@@ -6,7 +6,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
 @Configuration
-@EnableJpaRepositories(basePackages = "com.sellsync.api.domain")
+@EnableJpaRepositories(basePackages = {"com.sellsync.api.domain", "com.sellsync.api.infra"})
 @EnableJpaAuditing
 @EnableTransactionManagement
 public class JpaConfig {

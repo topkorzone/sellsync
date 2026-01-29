@@ -46,4 +46,9 @@ public class ProductMappingRequest {
     private Boolean isActive;
 
     private String mappingNote;
+
+    // 수수료 정보 (쿠팡 전용)
+    private java.math.BigDecimal commissionRate;
+    private String displayCategoryCode;
+    private String marketplaceSellerProductId;
 }

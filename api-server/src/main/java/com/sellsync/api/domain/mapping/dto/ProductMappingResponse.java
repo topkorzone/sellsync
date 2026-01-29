@@ -45,7 +45,12 @@ public class ProductMappingResponse {
     
     private Boolean isActive;
     private String mappingNote;
-    
+
+    // 수수료 정보 (쿠팡 전용)
+    private BigDecimal commissionRate;
+    private String displayCategoryCode;
+    private String marketplaceSellerProductId;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -70,6 +75,9 @@ public class ProductMappingResponse {
                 .mappedBy(mapping.getMappedBy())
                 .isActive(mapping.getIsActive())
                 .mappingNote(mapping.getMappingNote())
+                .commissionRate(mapping.getCommissionRate())
+                .displayCategoryCode(mapping.getDisplayCategoryCode())
+                .marketplaceSellerProductId(mapping.getMarketplaceSellerProductId())
                 .createdAt(mapping.getCreatedAt())
                 .updatedAt(mapping.getUpdatedAt())
                 .build();

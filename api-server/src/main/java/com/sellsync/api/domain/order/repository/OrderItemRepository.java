@@ -44,10 +44,16 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, UUID> {
     
     /**
      * 여러 주문의 모든 아이템 일괄 조회 (N+1 방지)
-     * 
+     *
      * @param orderIds 주문 ID 목록
      * @return 주문 상품 목록
      */
     @Query("SELECT oi FROM OrderItem oi WHERE oi.order.orderId IN :orderIds ORDER BY oi.order.orderId, oi.lineNo")
     List<OrderItem> findAllByOrderIdIn(@Param("orderIds") List<UUID> orderIds);
+
+    /**
+     * 마켓플레이스 상품ID + SKU로 주문 아이템 1건 조회
+     * rawPayload에서 sellerProductId 추출용
+     */
+    Optional<OrderItem> findFirstByMarketplaceProductIdAndMarketplaceSku(String marketplaceProductId, String marketplaceSku);
 }

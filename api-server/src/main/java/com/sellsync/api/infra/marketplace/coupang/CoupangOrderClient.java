@@ -241,13 +241,14 @@ public class CoupangOrderClient implements MarketplaceOrderClient {
         for (JsonNode itemNode : itemsNode) {
             long vendorItemId = itemNode.path("vendorItemId").asLong();
             long productId = itemNode.path("productId").asLong();
+            long sellerProductId = itemNode.path("sellerProductId").asLong(0);
             // marketplaceItemId는 아이템 식별용으로만 사용
             String marketplaceItemId = String.valueOf(vendorItemId);
-            
+
             // 가격 정보 추출
             long orderPrice = itemNode.path("orderPrice").asLong(0);
             int quantity = itemNode.path("shippingCount").asInt(1);
-            
+
             // 아이템 DTO 생성
             MarketplaceOrderItemDto item = MarketplaceOrderItemDto.builder()
                     .marketplaceItemId(marketplaceItemId)
@@ -260,6 +261,7 @@ public class CoupangOrderClient implements MarketplaceOrderClient {
                     .unitPrice(quantity > 0 ? orderPrice / quantity : orderPrice)
                     .lineAmount(orderPrice)
                     .rawPayload(itemNode.toString())
+                    .sellerProductId(sellerProductId > 0 ? String.valueOf(sellerProductId) : null)
                     .build();
             
             // 주문 DTO 생성 (각 아이템당 1개)
@@ -318,6 +320,7 @@ public class CoupangOrderClient implements MarketplaceOrderClient {
                 // vendorItemId를 기본으로 사용하되, 동일 주문 내 동일 상품 중복 시 인덱스 추가
                 long vendorItemId = item.path("vendorItemId").asLong();
                 long productId = item.path("productId").asLong();
+                long sellerProductId = item.path("sellerProductId").asLong(0);
                 String marketplaceItemId = String.valueOf(vendorItemId);
                 
                 // 만약 API 응답에 orderItemId나 shipmentBoxItemId 같은 필드가 있다면 그것을 사용
@@ -346,8 +349,9 @@ public class CoupangOrderClient implements MarketplaceOrderClient {
                         .unitPrice(quantity > 0 ? orderPrice / quantity : orderPrice)  // ✅ 단가 = 주문가 / 수량
                         .lineAmount(orderPrice)  // ✅ 라인 금액 = 주문가
                         .rawPayload(item.toString())
+                        .sellerProductId(sellerProductId > 0 ? String.valueOf(sellerProductId) : null)
                         .build());
-                
+
                 index++;
             }
         }

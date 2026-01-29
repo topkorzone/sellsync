@@ -29,4 +29,5 @@ public class MarketplaceOrderItemDto {
     private Long commissionAmount;  // 상품별 마켓 수수료
     private String itemStatus;
     private String rawPayload;
+    private String sellerProductId;  // 쿠팡 sellerProductId (상품 API 조회용)
 }

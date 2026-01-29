@@ -116,7 +116,26 @@ public class ProductMappingService {
             
             ProductMapping existing = existingMappings.get(key);
             if (existing != null) {
-                // 기존 매핑 반환
+                // 기존 매핑에 수수료 정보가 없고 요청에 있으면 업데이트 (쿠팡 수수료 enrichment)
+                boolean needsUpdate = false;
+                if (existing.getMarketplaceSellerProductId() == null && request.getMarketplaceSellerProductId() != null) {
+                    existing.setMarketplaceSellerProductId(request.getMarketplaceSellerProductId());
+                    needsUpdate = true;
+                }
+                if (existing.getCommissionRate() == null && request.getCommissionRate() != null) {
+                    existing.setCommissionRate(request.getCommissionRate());
+                    needsUpdate = true;
+                }
+                if (existing.getDisplayCategoryCode() == null && request.getDisplayCategoryCode() != null) {
+                    existing.setDisplayCategoryCode(request.getDisplayCategoryCode());
+                    needsUpdate = true;
+                }
+                if (needsUpdate) {
+                    productMappingRepository.save(existing);
+                    log.info("[수수료 업데이트] 기존 매핑에 수수료 정보 추가: mappingId={}, sellerProductId={}, commissionRate={}, categoryCode={}",
+                            existing.getProductMappingId(), request.getMarketplaceSellerProductId(),
+                            request.getCommissionRate(), request.getDisplayCategoryCode());
+                }
                 results.add(ProductMappingResponse.from(existing));
             } else {
                 // 신규 매핑 생성 준비
@@ -134,8 +153,11 @@ public class ProductMappingService {
                         .optionName(request.getOptionName())
                         .isActive(request.getIsActive() != null ? request.getIsActive() : true)
                         .mappingNote(request.getMappingNote())
+                        .commissionRate(request.getCommissionRate())
+                        .displayCategoryCode(request.getDisplayCategoryCode())
+                        .marketplaceSellerProductId(request.getMarketplaceSellerProductId())
                         .build();
-                
+
                 newMappings.add(newMapping);
                 results.add(null); // 나중에 저장 후 채움
             }
@@ -223,6 +245,9 @@ public class ProductMappingService {
                         .optionName(request.getOptionName())
                         .isActive(request.getIsActive() != null ? request.getIsActive() : true)
                         .mappingNote(request.getMappingNote())
+                        .commissionRate(request.getCommissionRate())
+                        .displayCategoryCode(request.getDisplayCategoryCode())
+                        .marketplaceSellerProductId(request.getMarketplaceSellerProductId())
                         .build();
 
                 ProductMapping saved = productMappingRepository.save(newMapping);

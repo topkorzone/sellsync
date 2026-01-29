@@ -1,10 +1,13 @@
 package com.sellsync.api.domain.order.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sellsync.api.domain.credential.service.CredentialService;
 import com.sellsync.api.domain.mapping.dto.ProductMappingRequest;
 import com.sellsync.api.domain.mapping.dto.ProductMappingResponse;
 import com.sellsync.api.domain.mapping.service.ProductMappingService;
+import com.sellsync.api.infra.marketplace.coupang.CoupangCommissionService;
+import com.sellsync.api.infra.marketplace.coupang.CoupangProductInfo;
 import com.sellsync.api.domain.order.client.MarketplaceOrderClient;
 import com.sellsync.api.domain.order.dto.MarketplaceOrderDto;
 import com.sellsync.api.domain.order.dto.MarketplaceOrderItemDto;
@@ -28,9 +31,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -48,6 +53,7 @@ public class OrderCollectionService {
     private final CredentialService credentialService;
     private final ProductMappingService productMappingService;
     private final ObjectMapper objectMapper;
+    private final CoupangCommissionService coupangCommissionService;
 
     @Data
     @Builder
@@ -93,7 +99,7 @@ public class OrderCollectionService {
                     i + 1, end, fetchedOrders.size());
             
             try {
-                CollectionResult batchResult = processBatch(tenantId, storeId, store.getMarketplace(), batch);
+                CollectionResult batchResult = processBatch(tenantId, storeId, store.getMarketplace(), batch, credentialsJson);
                 created += batchResult.getCreated();
                 updated += batchResult.getUpdated();
                 failed += batchResult.getFailed();
@@ -117,8 +123,8 @@ public class OrderCollectionService {
      * 타임아웃: 60초 (배치당, BATCH_SIZE=1이므로 짧게 설정)
      */
     @Transactional(timeout = 120)
-    protected CollectionResult processBatch(UUID tenantId, UUID storeId, Marketplace marketplace, 
-                                           List<MarketplaceOrderDto> batch) {
+    protected CollectionResult processBatch(UUID tenantId, UUID storeId, Marketplace marketplace,
+                                           List<MarketplaceOrderDto> batch, String credentialsJson) {
         int created = 0, updated = 0, failed = 0;
 
         // 1. 기존 주문 일괄 조회 (벌크 조회로 DB 호출 최소화)
@@ -216,7 +222,7 @@ public class OrderCollectionService {
         
         // 4. 상품 매핑 레코드 자동 생성 (벌크 처리로 최적화)
         try {
-            createProductMappingsForOrders(processedOrders);
+            createProductMappingsForOrders(processedOrders, credentialsJson);
         } catch (Exception e) {
             log.warn("[OrderCollection] Failed to create product mappings in bulk, falling back to individual", e);
             // 폴백: 개별 처리
@@ -224,7 +230,7 @@ public class OrderCollectionService {
                 try {
                     createProductMappingsForOrder(order);
                 } catch (Exception ex) {
-                    log.warn("[OrderCollection] Failed to create product mappings for order: {}", 
+                    log.warn("[OrderCollection] Failed to create product mappings for order: {}",
                             order.getMarketplaceOrderId(), ex);
                 }
             }
@@ -577,24 +583,36 @@ public class OrderCollectionService {
 
     /**
      * 여러 주문의 상품 매핑 레코드 벌크 생성 (성능 최적화)
-     * 
+     *
+     * 쿠팡 주문의 경우 상품 API를 통해 수수료율(saleAgentCommission)을 조회하여
+     * product_mappings에 함께 저장합니다.
+     *
      * @param orders 주문 목록
+     * @param credentialsJson 마켓플레이스 인증 정보 JSON
      */
-    private void createProductMappingsForOrders(List<Order> orders) {
+    private void createProductMappingsForOrders(List<Order> orders, String credentialsJson) {
         if (orders == null || orders.isEmpty()) {
             return;
         }
-        
+
+        Marketplace marketplace = orders.get(0).getMarketplace();
+
+        // [쿠팡] 수수료 정보 사전 조회 (sellerProductId → CoupangProductInfo)
+        Map<String, CoupangProductInfo> commissionInfoMap = new HashMap<>();
+        if (marketplace == Marketplace.COUPANG && credentialsJson != null) {
+            commissionInfoMap = fetchCoupangCommissionInfo(orders, credentialsJson);
+        }
+
         // 1. 모든 주문의 상품 아이템에서 매핑 요청 수집 (중복 제거)
         // 같은 배치 내 여러 주문이 동일한 상품을 포함할 수 있으므로
         // (tenantId, storeId, marketplace, productId, sku) 조합으로 중복 제거
         Map<String, ProductMappingRequest> uniqueRequests = new HashMap<>();
-        
+
         for (Order order : orders) {
             if (order.getItems() == null || order.getItems().isEmpty()) {
                 continue;
             }
-            
+
             for (OrderItem item : order.getItems()) {
                 // 중복 제거를 위한 유니크 키 생성
                 String key = String.format("%s_%s_%s_%s_%s",
@@ -603,13 +621,13 @@ public class OrderCollectionService {
                         order.getMarketplace(),
                         item.getMarketplaceProductId(),
                         item.getMarketplaceSku());
-                
+
                 // 이미 동일한 매핑이 존재하면 스킵
                 if (uniqueRequests.containsKey(key)) {
                     continue;
                 }
-                
-                ProductMappingRequest request = ProductMappingRequest.builder()
+
+                ProductMappingRequest.ProductMappingRequestBuilder builder = ProductMappingRequest.builder()
                         .tenantId(order.getTenantId())
                         .storeId(order.getStoreId())
                         .marketplace(order.getMarketplace())
@@ -618,23 +636,100 @@ public class OrderCollectionService {
                         .productName(item.getProductName())
                         .optionName(item.getOptionName())
                         .erpCode("ECOUNT")
-                        .isActive(true)
-                        .build();
-                
-                uniqueRequests.put(key, request);
+                        .isActive(true);
+
+                // [쿠팡] 수수료 정보 enrichment
+                if (marketplace == Marketplace.COUPANG) {
+                    String sellerProductId = extractSellerProductId(item.getRawPayload());
+                    log.info("[쿠팡 수수료 enrichment] productId={}, sku={}, sellerProductId={}, rawPayload존재={}",
+                            item.getMarketplaceProductId(), item.getMarketplaceSku(),
+                            sellerProductId, item.getRawPayload() != null);
+                    if (sellerProductId != null) {
+                        builder.marketplaceSellerProductId(sellerProductId);
+                        CoupangProductInfo info = commissionInfoMap.get(sellerProductId);
+                        if (info != null) {
+                            builder.commissionRate(info.getSaleAgentCommission());
+                            builder.displayCategoryCode(info.getDisplayCategoryCode());
+                            log.info("[쿠팡 수수료 enrichment] 수수료 정보 적용: sellerProductId={}, commissionRate={}, categoryCode={}",
+                                    sellerProductId, info.getSaleAgentCommission(), info.getDisplayCategoryCode());
+                        } else {
+                            log.warn("[쿠팡 수수료 enrichment] 수수료 정보 없음 (API 실패 또는 미조회): sellerProductId={}", sellerProductId);
+                        }
+                    }
+                }
+
+                uniqueRequests.put(key, builder.build());
             }
         }
-        
+
         if (uniqueRequests.isEmpty()) {
             return;
         }
-        
+
         // 2. 벌크 생성/조회 (중복 제거된 요청 목록)
         List<ProductMappingRequest> requests = new ArrayList<>(uniqueRequests.values());
         List<ProductMappingResponse> responses = productMappingService.bulkCreateOrGet(requests);
-        
-        log.info("[매핑 레코드 벌크 생성] 주문 {}개, 유니크 상품 매핑 {}개 처리 (중복 제거 적용)", 
+
+        log.info("[매핑 레코드 벌크 생성] 주문 {}개, 유니크 상품 매핑 {}개 처리 (중복 제거 적용)",
                 orders.size(), responses.size());
+    }
+
+    /**
+     * 쿠팡 주문에서 sellerProductId를 추출하고 상품 API로 수수료 정보를 조회
+     *
+     * @param orders 쿠팡 주문 목록
+     * @param credentialsJson 쿠팡 API 인증 JSON
+     * @return sellerProductId → CoupangProductInfo 맵
+     */
+    private Map<String, CoupangProductInfo> fetchCoupangCommissionInfo(List<Order> orders, String credentialsJson) {
+        // 1. 유니크 sellerProductId 수집
+        Set<String> sellerProductIds = new HashSet<>();
+        for (Order order : orders) {
+            if (order.getItems() == null) continue;
+            for (OrderItem item : order.getItems()) {
+                String spid = extractSellerProductId(item.getRawPayload());
+                if (spid != null) {
+                    sellerProductIds.add(spid);
+                }
+            }
+        }
+
+        if (sellerProductIds.isEmpty()) {
+            return new HashMap<>();
+        }
+
+        log.info("[쿠팡 수수료 조회] 유니크 sellerProductId {}개 조회 시작", sellerProductIds.size());
+
+        // 2. 각 sellerProductId에 대해 수수료 정보 조회 (캐시 적용)
+        Map<String, CoupangProductInfo> result = new HashMap<>();
+        for (String spid : sellerProductIds) {
+            try {
+                coupangCommissionService.getProductInfo(credentialsJson, spid)
+                        .ifPresent(info -> result.put(spid, info));
+            } catch (Exception e) {
+                log.warn("[쿠팡 수수료 조회] 실패 - sellerProductId={}, error={}", spid, e.getMessage());
+            }
+        }
+
+        log.info("[쿠팡 수수료 조회] 완료: {}개 중 {}개 조회 성공", sellerProductIds.size(), result.size());
+        return result;
+    }
+
+    /**
+     * OrderItem rawPayload JSON에서 sellerProductId 추출
+     */
+    private String extractSellerProductId(String rawPayload) {
+        if (rawPayload == null || rawPayload.isEmpty()) {
+            return null;
+        }
+        try {
+            JsonNode node = objectMapper.readTree(rawPayload);
+            long spid = node.path("sellerProductId").asLong(0);
+            return spid > 0 ? String.valueOf(spid) : null;
+        } catch (Exception e) {
+            log.debug("[sellerProductId 추출 실패] error={}", e.getMessage());
+            return null;
+        }
     }
     
     /**

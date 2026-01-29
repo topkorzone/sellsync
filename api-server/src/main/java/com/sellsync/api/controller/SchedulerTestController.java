@@ -1,12 +1,22 @@
 package com.sellsync.api.controller;
 
 import com.sellsync.api.common.ApiResponse;
+import com.sellsync.api.domain.credential.service.CredentialService;
+import com.sellsync.api.domain.mapping.entity.ProductMapping;
+import com.sellsync.api.domain.mapping.repository.ProductMappingRepository;
+import com.sellsync.api.domain.order.entity.OrderItem;
+import com.sellsync.api.domain.order.enums.Marketplace;
+import com.sellsync.api.domain.order.repository.OrderItemRepository;
+import com.sellsync.api.domain.store.entity.Store;
+import com.sellsync.api.domain.store.repository.StoreRepository;
+import com.sellsync.api.infra.marketplace.coupang.*;
 import com.sellsync.api.scheduler.*;
 import lombok.Builder;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -51,6 +61,14 @@ public class SchedulerTestController {
     private final OrderCollectionScheduler orderCollectionScheduler;
     private final ShipmentPushScheduler shipmentPushScheduler;
     private final ErpItemSyncScheduler erpItemSyncScheduler;
+    private final CoupangCategorySyncService coupangCategorySyncService;
+    private final CoupangCommissionRateService coupangCommissionRateService;
+    private final CoupangCommissionService coupangCommissionService;
+    private final CredentialService credentialService;
+    private final StoreRepository storeRepository;
+    private final ProductMappingRepository productMappingRepository;
+    private final OrderItemRepository orderItemRepository;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     /**
      * 사용 가능한 스케줄러 목록 조회
@@ -526,6 +544,226 @@ public class SchedulerTestController {
         log.info("[테스트] 모든 스케줄러 순차 실행 완료: 성공 {}, 실패 {}", totalSuccess, totalFailed);
         
         return ApiResponse.ok(response);
+    }
+
+    /**
+     * 쿠팡 카테고리 동기화 + 수수료 자동 매핑
+     * POST /api/test/scheduler/coupang-category-sync?storeId={storeId}
+     */
+    @PostMapping("/coupang-category-sync")
+    public ApiResponse<Map<String, Object>> triggerCoupangCategorySync(@RequestParam UUID storeId) {
+        log.info("[테스트] 쿠팡 카테고리 동기화 수동 실행: storeId={}", storeId);
+
+        LocalDateTime startTime = LocalDateTime.now();
+        try {
+            Store store = storeRepository.findById(storeId)
+                    .orElseThrow(() -> new IllegalArgumentException("스토어를 찾을 수 없습니다: " + storeId));
+
+            Optional<String> credentialsOpt = credentialService.getMarketplaceCredentials(
+                    store.getTenantId(), storeId, Marketplace.COUPANG, store.getCredentials());
+
+            if (credentialsOpt.isEmpty()) {
+                throw new IllegalStateException("쿠팡 인증 정보를 찾을 수 없습니다: storeId=" + storeId);
+            }
+
+            CoupangCategorySyncService.SyncResult result =
+                    coupangCategorySyncService.syncAndAutoMap(credentialsOpt.get());
+
+            // 동기화 후 캐시 무효화 (수수료율 캐시 + 상품정보 캐시 모두)
+            coupangCommissionRateService.invalidateAllCache();
+            coupangCommissionService.invalidateAllCache();
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("savedCategories", result.getSavedCount());
+            response.put("mappedCategories", result.getMappedCount());
+            response.put("startedAt", startTime);
+            response.put("completedAt", LocalDateTime.now());
+            response.put("success", true);
+            response.put("message", "쿠팡 카테고리 동기화 + 자동 매핑 완료");
+
+            return ApiResponse.ok(response);
+
+        } catch (Exception e) {
+            log.error("[테스트] 쿠팡 카테고리 동기화 실패", e);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("message", "동기화 실패: " + e.getMessage());
+            response.put("error", e.getClass().getSimpleName());
+            response.put("startedAt", startTime);
+            response.put("completedAt", LocalDateTime.now());
+
+            return ApiResponse.ok(response);
+        }
+    }
+
+    /**
+     * 쿠팡 수수료율 일괄 업데이트
+     * POST /api/test/scheduler/coupang-commission-update?storeId={storeId}
+     *
+     * product_mappings 테이블에서 commission_rate가 null인 쿠팡 상품을 찾아 수수료율을 업데이트합니다.
+     *
+     * 처리 단계:
+     * 1. display_category_code가 있는 경우 → 브릿지 테이블에서 수수료율 조회
+     * 2. display_category_code가 없는 경우 → 주문 아이템 rawPayload에서 sellerProductId 추출
+     *    → 쿠팡 상품 API 호출 → displayCategoryCode + commissionRate 획득 → 업데이트
+     */
+    @PostMapping("/coupang-commission-update")
+    @Transactional
+    public ApiResponse<Map<String, Object>> triggerCoupangCommissionUpdate(@RequestParam UUID storeId) {
+        log.info("[테스트] 쿠팡 수수료율 일괄 업데이트 시작: storeId={}", storeId);
+
+        LocalDateTime startTime = LocalDateTime.now();
+        try {
+            // 인증 정보 조회
+            Store store = storeRepository.findById(storeId)
+                    .orElseThrow(() -> new IllegalArgumentException("스토어를 찾을 수 없습니다: " + storeId));
+            Optional<String> credentialsOpt = credentialService.getMarketplaceCredentials(
+                    store.getTenantId(), storeId, Marketplace.COUPANG, store.getCredentials());
+            if (credentialsOpt.isEmpty()) {
+                throw new IllegalStateException("쿠팡 인증 정보를 찾을 수 없습니다: storeId=" + storeId);
+            }
+            String credentials = credentialsOpt.get();
+
+            // 캐시 무효화 (최신 DB 데이터 사용)
+            coupangCommissionRateService.invalidateAllCache();
+            coupangCommissionService.invalidateAllCache();
+
+            // commission_rate가 null인 쿠팡 상품 매핑 조회
+            List<ProductMapping> mappings = productMappingRepository.findAll().stream()
+                    .filter(m -> m.getMarketplace() == Marketplace.COUPANG)
+                    .filter(m -> m.getCommissionRate() == null)
+                    .toList();
+
+            log.info("[수수료 일괄 업데이트] 대상: {}개 (commission_rate=null, marketplace=COUPANG)", mappings.size());
+
+            int updatedFromBridge = 0;
+            int updatedFromApi = 0;
+            int skippedNoRate = 0;
+            int skippedError = 0;
+
+            for (ProductMapping mapping : mappings) {
+                try {
+                    // Case 1: display_category_code가 있으면 브릿지 테이블에서 수수료율 조회
+                    String categoryCode = mapping.getDisplayCategoryCode();
+                    if (categoryCode != null && !categoryCode.isBlank()) {
+                        java.math.BigDecimal rate = coupangCommissionRateService.getCommissionRate(categoryCode);
+                        if (rate != null) {
+                            mapping.setCommissionRate(rate);
+                            productMappingRepository.save(mapping);
+                            updatedFromBridge++;
+                            log.info("[수수료 업데이트-브릿지] mappingId={}, categoryCode={}, rate={}",
+                                    mapping.getProductMappingId(), categoryCode, rate);
+                            continue;
+                        }
+                    }
+
+                    // Case 2: display_category_code가 없으면 상품 API로 조회
+                    String sellerProductId = mapping.getMarketplaceSellerProductId();
+
+                    // sellerProductId가 없으면 주문 아이템 rawPayload에서 추출
+                    if (sellerProductId == null || sellerProductId.isBlank()) {
+                        sellerProductId = extractSellerProductIdFromOrderItem(
+                                mapping.getMarketplaceProductId(), mapping.getMarketplaceSku());
+                    }
+
+                    if (sellerProductId == null) {
+                        skippedNoRate++;
+                        log.warn("[수수료 업데이트] sellerProductId 추출 불가: mappingId={}, productId={}, sku={}",
+                                mapping.getProductMappingId(), mapping.getMarketplaceProductId(), mapping.getMarketplaceSku());
+                        continue;
+                    }
+
+                    // 상품 API 호출
+                    Optional<CoupangProductInfo> infoOpt = coupangCommissionService.getProductInfo(credentials, sellerProductId);
+                    if (infoOpt.isPresent()) {
+                        CoupangProductInfo info = infoOpt.get();
+                        boolean updated = false;
+
+                        if (mapping.getMarketplaceSellerProductId() == null) {
+                            mapping.setMarketplaceSellerProductId(sellerProductId);
+                            updated = true;
+                        }
+                        if (info.getDisplayCategoryCode() != null && mapping.getDisplayCategoryCode() == null) {
+                            mapping.setDisplayCategoryCode(info.getDisplayCategoryCode());
+                            updated = true;
+                        }
+                        if (info.getSaleAgentCommission() != null) {
+                            mapping.setCommissionRate(info.getSaleAgentCommission());
+                            updated = true;
+                        }
+
+                        if (updated) {
+                            productMappingRepository.save(mapping);
+                            updatedFromApi++;
+                            log.info("[수수료 업데이트-API] mappingId={}, sellerProductId={}, categoryCode={}, rate={}",
+                                    mapping.getProductMappingId(), sellerProductId,
+                                    info.getDisplayCategoryCode(), info.getSaleAgentCommission());
+                        } else {
+                            skippedNoRate++;
+                        }
+                    } else {
+                        skippedNoRate++;
+                        log.warn("[수수료 업데이트] 상품 API 조회 실패: mappingId={}, sellerProductId={}",
+                                mapping.getProductMappingId(), sellerProductId);
+                    }
+
+                } catch (Exception e) {
+                    skippedError++;
+                    log.error("[수수료 업데이트] 처리 실패: mappingId={}, error={}",
+                            mapping.getProductMappingId(), e.getMessage());
+                }
+            }
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("totalTargets", mappings.size());
+            response.put("updatedFromBridge", updatedFromBridge);
+            response.put("updatedFromApi", updatedFromApi);
+            response.put("skippedNoRate", skippedNoRate);
+            response.put("skippedError", skippedError);
+            response.put("startedAt", startTime);
+            response.put("completedAt", LocalDateTime.now());
+            response.put("success", true);
+            response.put("message", String.format("수수료율 일괄 업데이트 완료: 브릿지 %d개 + API %d개 업데이트, %d개 수수료율 없음, %d개 에러",
+                    updatedFromBridge, updatedFromApi, skippedNoRate, skippedError));
+
+            log.info("[수수료 일괄 업데이트] 완료: fromBridge={}, fromApi={}, noRate={}, error={}",
+                    updatedFromBridge, updatedFromApi, skippedNoRate, skippedError);
+
+            return ApiResponse.ok(response);
+
+        } catch (Exception e) {
+            log.error("[테스트] 쿠팡 수수료율 일괄 업데이트 실패", e);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("message", "업데이트 실패: " + e.getMessage());
+            response.put("error", e.getClass().getSimpleName());
+            response.put("startedAt", startTime);
+            response.put("completedAt", LocalDateTime.now());
+
+            return ApiResponse.ok(response);
+        }
+    }
+
+    /**
+     * 주문 아이템 rawPayload에서 sellerProductId 추출
+     */
+    private String extractSellerProductIdFromOrderItem(String marketplaceProductId, String marketplaceSku) {
+        try {
+            Optional<OrderItem> itemOpt = orderItemRepository
+                    .findFirstByMarketplaceProductIdAndMarketplaceSku(marketplaceProductId, marketplaceSku);
+            if (itemOpt.isEmpty() || itemOpt.get().getRawPayload() == null) {
+                return null;
+            }
+            com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(itemOpt.get().getRawPayload());
+            long spid = node.path("sellerProductId").asLong(0);
+            return spid > 0 ? String.valueOf(spid) : null;
+        } catch (Exception e) {
+            log.debug("[sellerProductId 추출 실패] productId={}, sku={}, error={}",
+                    marketplaceProductId, marketplaceSku, e.getMessage());
+            return null;
+        }
     }
 
     /**

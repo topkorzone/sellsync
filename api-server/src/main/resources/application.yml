@@ -127,6 +127,7 @@ marketplace:
     base-url: https://api-gateway.coupang.com
     connect-timeout: 5000
     read-timeout: 30000
+    default-commission-rate: 10.8
 
 ecount:
   api:
