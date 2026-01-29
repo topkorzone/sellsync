@@ -67,8 +67,9 @@ export default function MappingsPage() {
       queryClient.invalidateQueries({ queryKey: ['mappings-stats'] });
       setSelectedMapping(null);
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.error?.message || '매핑에 실패했습니다.');
+    onError: (err: unknown) => {
+      const error = err as { response?: { data?: { error?: { message?: string } } } };
+      toast.error(error.response?.data?.error?.message || '매핑에 실패했습니다.');
     },
   });
 
@@ -92,8 +93,9 @@ export default function MappingsPage() {
       setShowBulkDialog(false);
       setBulkErpItemCode('');
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.error?.message || '일괄 매핑에 실패했습니다.');
+    onError: (err: unknown) => {
+      const error = err as { response?: { data?: { error?: { message?: string } } } };
+      toast.error(error.response?.data?.error?.message || '일괄 매핑에 실패했습니다.');
     },
   });
 

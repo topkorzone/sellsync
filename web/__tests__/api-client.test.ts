@@ -1,6 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import axios from 'axios';
-import type { MockInstance } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
+import type { InternalAxiosRequestConfig } from 'axios';
 
 // apiClient를 import하기 전에 localStorage mock 설정
 beforeEach(() => {
@@ -17,7 +16,7 @@ describe('apiClient interceptors', () => {
     // 요청 인터셉터에서 헤더 설정 검증
     const config = await apiClient.interceptors.request.handlers[0].fulfilled({
       headers: {} as Record<string, string>,
-    } as any);
+    } as InternalAxiosRequestConfig);
 
     expect(config.headers.Authorization).toBe('Bearer test-token');
   });
@@ -27,7 +26,7 @@ describe('apiClient interceptors', () => {
 
     const config = await apiClient.interceptors.request.handlers[0].fulfilled({
       headers: {} as Record<string, string>,
-    } as any);
+    } as InternalAxiosRequestConfig);
 
     expect(config.headers.Authorization).toBeUndefined();
   });

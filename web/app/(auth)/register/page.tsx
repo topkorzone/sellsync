@@ -71,8 +71,8 @@ export default function RegisterPage() {
   const { register, handleSubmit, formState: { errors, isSubmitting }, setValue, watch } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
-      agreeTerms: false as any,
-      agreePrivacy: false as any,
+      agreeTerms: false,
+      agreePrivacy: false,
     },
   });
 

@@ -39,7 +39,7 @@ function OAuthCallbackContent() {
             setError('사용자 정보를 가져올 수 없습니다.');
             setTimeout(() => router.push('/login'), 3000);
           }
-        } catch (err) {
+        } catch {
           setError('인증 처리 중 오류가 발생했습니다.');
           setTimeout(() => router.push('/login'), 3000);
         }

@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, FileText, Truck, ExternalLink, CheckCircle2, Clock, XCircle, MessageSquare, Trash2, Edit2, History } from 'lucide-react';
+import { ArrowLeft, FileText, Truck, CheckCircle2, Clock, MessageSquare, Trash2, Edit2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/table';
 import { PageHeader } from '@/components/layout';
 import { Loading } from '@/components/common';
-import { ordersApi, postingsApi, shipmentsApi, orderMemosApi, orderStatusHistoryApi, type OrderMemo, type OrderStatusHistory } from '@/lib/api';
+import { ordersApi, postingsApi, shipmentsApi, orderMemosApi, orderStatusHistoryApi, type OrderMemo } from '@/lib/api';
 import { formatDate, formatCurrency } from '@/lib/utils';
 import { ORDER_STATUS, MARKETPLACE, POSTING_STATUS } from '@/lib/utils/constants';
 import { useState } from 'react';
@@ -104,8 +104,9 @@ console.log('Order-Data :::', orderData);
       toast.success('전표가 생성되었습니다.');
       queryClient.invalidateQueries({ queryKey: ['order-postings', orderId] });
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.error?.message || '전표 생성에 실패했습니다.');
+    onError: (err: unknown) => {
+      const error = err as { response?: { data?: { error?: { message?: string } } } };
+      toast.error(error.response?.data?.error?.message || '전표 생성에 실패했습니다.');
     },
   });
 
@@ -117,8 +118,9 @@ console.log('Order-Data :::', orderData);
       setMemoContent('');
       queryClient.invalidateQueries({ queryKey: ['order-memos', orderId] });
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.error?.message || '메모 추가에 실패했습니다.');
+    onError: (err: unknown) => {
+      const error = err as { response?: { data?: { error?: { message?: string } } } };
+      toast.error(error.response?.data?.error?.message || '메모 추가에 실패했습니다.');
     },
   });
 
