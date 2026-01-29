@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -186,7 +186,7 @@ export function FieldMappingSelector({
               disabled={disabled}
             />
             <p className="text-xs text-muted-foreground">
-              예: 창고코드 "00001", 거래처코드 "CUST001" 등
+              예: 창고코드 &quot;00001&quot;, 거래처코드 &quot;CUST001&quot; 등
             </p>
           </div>
         ) : selectedSource === 'FORMULA' ? (
@@ -208,7 +208,7 @@ export function FieldMappingSelector({
                   <code className="bg-background px-1 rounded">/</code>{' '}
                   <code className="bg-background px-1 rounded">()</code></li>
                 <li><strong>문자열 연결:</strong> <code className="bg-background px-1 rounded">+</code> 연산자 사용</li>
-                <li><strong>문자열 리터럴:</strong> 작은따옴표로 감싸기 <code className="bg-background px-1 rounded">'텍스트'</code></li>
+                <li><strong>문자열 리터럴:</strong> 작은따옴표로 감싸기 <code className="bg-background px-1 rounded">&apos;텍스트&apos;</code></li>
                 <li><strong>필드 참조:</strong> <code className="bg-background px-1 rounded">order.필드명</code>, <code className="bg-background px-1 rounded">item.필드명</code></li>
               </ul>
               <p className="font-medium mt-2">💡 숫자 계산 예시</p>
@@ -219,9 +219,9 @@ export function FieldMappingSelector({
               </ul>
               <p className="font-medium mt-2">💡 문자열 연결 예시</p>
               <ul className="space-y-1 list-disc list-inside text-muted-foreground">
-                <li><code className="bg-background px-1 rounded">order.marketplaceOrderId + ' ' + order.buyerName</code> - 주문번호 주문자명</li>
-                <li><code className="bg-background px-1 rounded">order.buyerName + '님'</code> - 주문자명님</li>
-                <li><code className="bg-background px-1 rounded">'주문번호: ' + order.marketplaceOrderId</code> - 주문번호: ORD123</li>
+                <li><code className="bg-background px-1 rounded">order.marketplaceOrderId + &apos; &apos; + order.buyerName</code> - 주문번호 주문자명</li>
+                <li><code className="bg-background px-1 rounded">order.buyerName + &apos;님&apos;</code> - 주문자명님</li>
+                <li><code className="bg-background px-1 rounded">&apos;주문번호: &apos; + order.marketplaceOrderId</code> - 주문번호: ORD123</li>
               </ul>
             </div>
           </div>

@@ -32,8 +32,9 @@ export default function PostingDetailPage() {
       toast.success('ERP 전송이 완료되었습니다.');
       queryClient.invalidateQueries({ queryKey: ['posting', postingId] });
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.error?.message || 'ERP 전송에 실패했습니다.');
+    onError: (err: unknown) => {
+      const error = err as { response?: { data?: { error?: { message?: string } } } };
+      toast.error(error.response?.data?.error?.message || 'ERP 전송에 실패했습니다.');
     },
   });
 

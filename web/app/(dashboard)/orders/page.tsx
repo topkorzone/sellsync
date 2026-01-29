@@ -32,7 +32,7 @@ import { PageHeader } from '@/components/layout';
 import { Loading, EmptyState } from '@/components/common';
 import { ordersApi, OrderParams, storeApi, apiClient } from '@/lib/api';
 import { formatDate, formatCurrency, cn } from '@/lib/utils';
-import { ORDER_STATUS, SETTLEMENT_STATUS, SETTLEMENT_POSTING_STATUS } from '@/lib/utils/constants';
+import { ORDER_STATUS, SETTLEMENT_STATUS } from '@/lib/utils/constants';
 import { toast } from 'sonner';
 import type { Order, Store, SettlementStatus } from '@/types';
 import { ProductMappingDialog } from '@/components/orders/ProductMappingDialog';
@@ -42,10 +42,7 @@ import { OrderStatusBadge } from '@/components/orders/OrderStatusBadge';
 import { MappingStatus } from '@/components/orders/MappingStatus';
 import { PostingStatus } from '@/components/orders/PostingStatus';
 import {
-  Tooltip,
-  TooltipContent,
   TooltipProvider,
-  TooltipTrigger,
 } from '@/components/ui/tooltip';
 
 // 날짜 프리셋
@@ -62,6 +59,7 @@ export default function OrdersPage() {
   const queryClient = useQueryClient();
 
   // 상품정보 전체 텍스트 생성 함수
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const getFullProductInfo = (order: Order): string => {
     if (!order.items || order.items.length === 0) return '-';
     
@@ -263,6 +261,7 @@ export default function OrdersPage() {
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const toggleOrderSelection = (orderId: string) => {
     setSelectedOrders((prev) => {
       const newSet = new Set(prev);
@@ -285,7 +284,7 @@ export default function OrdersPage() {
   };
 
   const openMappingDialog = (order: Order) => {
-    const firstUnmappedItem = order.items.find(item => order.mappingStatus === 'UNMAPPED');
+    const firstUnmappedItem = order.items.find(() => order.mappingStatus === 'UNMAPPED');
     if (firstUnmappedItem) {
       setSelectedOrderItem({
         orderId: order.orderId,
@@ -309,14 +308,16 @@ export default function OrdersPage() {
       });
       return response.data;
     },
-    onSuccess: (data: any) => {
-      const result = data.data;
-      toast.success(`전표 생성 완료: 성공 ${result.success}건, 실패 ${result.failed}건`);
+    onSuccess: (data: unknown) => {
+      const response = data as { data?: { success?: number; failed?: number } };
+      const result = response.data;
+      toast.success(`전표 생성 완료: 성공 ${result?.success || 0}건, 실패 ${result?.failed || 0}건`);
       setSelectedOrders(new Set());
       queryClient.invalidateQueries({ queryKey: ['orders'] });
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.error?.message || '전표 생성 중 오류가 발생했습니다');
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { error?: { message?: string } } } };
+      toast.error(err.response?.data?.error?.message || '전표 생성 중 오류가 발생했습니다');
     },
   });
 
@@ -554,9 +555,11 @@ export default function OrdersPage() {
                     
                     // 그룹 전체 정보 (첫 번째 주문 기준)
                     const firstOrder = group.items[0];
+                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
                     const groupTotalQuantity = group.items.reduce((sum, o) => 
                       sum + (o.items?.reduce((s, item) => s + item.quantity, 0) || 0), 0
                     );
+                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
                     const groupTotalAmount = group.items.reduce((sum, o) => sum + (o.totalPaidAmount || 0), 0);
                     // 배송비는 첫 번째 주문의 배송비만 사용 (묶음배송은 1건으로 처리)
                     const groupShippingFee = firstOrder.shippingFee || 0;

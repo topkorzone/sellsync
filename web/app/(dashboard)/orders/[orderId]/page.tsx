@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, FileText, Truck, CheckCircle2, Clock, MessageSquare, Trash2, Edit2 } from 'lucide-react';
+import { ArrowLeft, FileText, Truck, CheckCircle2, Clock, MessageSquare, Trash2, Edit2, History } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -134,8 +134,9 @@ console.log('Order-Data :::', orderData);
       setEditingContent('');
       queryClient.invalidateQueries({ queryKey: ['order-memos', orderId] });
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.error?.message || '메모 수정에 실패했습니다.');
+    onError: (err: unknown) => {
+      const error = err as { response?: { data?: { error?: { message?: string } } } };
+      toast.error(error.response?.data?.error?.message || '메모 수정에 실패했습니다.');
     },
   });
 
@@ -146,8 +147,9 @@ console.log('Order-Data :::', orderData);
       toast.success('메모가 삭제되었습니다.');
       queryClient.invalidateQueries({ queryKey: ['order-memos', orderId] });
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.error?.message || '메모 삭제에 실패했습니다.');
+    onError: (err: unknown) => {
+      const error = err as { response?: { data?: { error?: { message?: string } } } };
+      toast.error(error.response?.data?.error?.message || '메모 삭제에 실패했습니다.');
     },
   });
 
@@ -516,7 +518,7 @@ console.log('allOrdersForCommission :::', allOrdersForCommission);
               
               <div className="text-sm text-muted-foreground bg-yellow-50 dark:bg-yellow-950/20 p-3 rounded-lg">
                 <p>아직 이카운트 ERP에 전표가 생성되지 않았습니다.</p>
-                <p className="mt-1">상단의 "전표 생성" 버튼을 클릭하여 전표를 생성할 수 있습니다.</p>
+                <p className="mt-1">상단의 &quot;전표 생성&quot; 버튼을 클릭하여 전표를 생성할 수 있습니다.</p>
               </div>
             </div>
           )}
@@ -608,7 +610,6 @@ console.log('allOrdersForCommission :::', allOrdersForCommission);
               {/* 타임라인 아이템들 */}
               <div className="space-y-6">
                 {statusHistory.map((history, index) => {
-                  const isFirst = index === 0;
                   const isLast = index === statusHistory.length - 1;
                   
                   return (
