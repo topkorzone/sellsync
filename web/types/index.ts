@@ -287,6 +287,10 @@ export interface DashboardSummary {
   shipmentFailed: number;
   unmappedCount: number;
   lastSyncAt?: string;
+  // 빠른 시작 가이드용
+  erpConnected?: boolean;
+  storesConnected?: number;
+  itemsSynced?: boolean;
 }
 
 // ============================================
