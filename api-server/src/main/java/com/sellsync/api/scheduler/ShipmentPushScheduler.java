@@ -5,6 +5,7 @@ import com.sellsync.api.domain.store.entity.Store;
 import com.sellsync.api.domain.store.repository.StoreRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -35,10 +36,8 @@ public class ShipmentPushScheduler {
         log.info("=== [ShipmentPushScheduler] 대기 송장 반영 시작 ===");
 
         try {
-            // 활성 상점 목록 조회
-            List<Store> activeStores = storeRepository.findAll().stream()
-                    .filter(Store::getIsActive)
-                    .collect(Collectors.toList());
+            // 활성 상점 목록 조회 (DB 레벨 필터링)
+            List<Store> activeStores = storeRepository.findByIsActive(true);
 
             // 테넌트별로 그룹핑
             List<UUID> tenantIds = activeStores.stream()
@@ -71,14 +70,13 @@ public class ShipmentPushScheduler {
      * 실패한 송장 재시도 (1시간 주기)
      */
     @Scheduled(cron = "0 0 * * * *")
+    @SchedulerLock(name = "retryFailedShipments", lockAtLeastFor = "PT1M", lockAtMostFor = "PT30M")
     public void retryFailedShipments() {
         log.info("=== [ShipmentPushScheduler] 실패 송장 재시도 시작 ===");
 
         try {
-            // 활성 상점 목록 조회
-            List<Store> activeStores = storeRepository.findAll().stream()
-                    .filter(Store::getIsActive)
-                    .collect(Collectors.toList());
+            // 활성 상점 목록 조회 (DB 레벨 필터링)
+            List<Store> activeStores = storeRepository.findByIsActive(true);
 
             // 테넌트별로 그룹핑
             List<UUID> tenantIds = activeStores.stream()

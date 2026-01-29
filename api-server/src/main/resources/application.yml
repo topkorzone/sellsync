@@ -13,7 +13,7 @@ spring:
       max-request-size: 10MB
 
   main:
-    allow-circular-references: true
+    allow-circular-references: false
 
   # ============================================================
   # JPA / Hibernate (공통)
@@ -144,6 +144,17 @@ app:
   api-base-url: ${API_BASE_URL}
 
 # ============================================================
+# SpringDoc OpenAPI
+# ============================================================
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: method
+
+# ============================================================
 # Logging (공통)
 # ============================================================
 logging:
@@ -155,5 +166,5 @@ logging:
     org.hibernate.SQL: INFO
     org.hibernate.type.descriptor.sql.BasicBinder: OFF
   pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss, Asia/Seoul} [%thread] %-5level %logger{36} - %msg%n"
-    file: "%d{yyyy-MM-dd HH:mm:ss, Asia/Seoul} [%thread] %-5level %logger{36} - %msg%n"
+    console: "%d{yyyy-MM-dd HH:mm:ss, Asia/Seoul} [%thread] [%X{traceId:-}] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss, Asia/Seoul} [%thread] [%X{traceId:-}] %-5level %logger{36} - %msg%n"

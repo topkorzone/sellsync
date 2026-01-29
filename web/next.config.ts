@@ -1,22 +1,16 @@
 import type { NextConfig } from "next";
 
-// const nextConfig: NextConfig = {
-//   /* config options here */
-// };
+const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
-// export default nextConfig;
-
-/** @type {import('next').NextConfig} */
-const nextConfig = {
+const nextConfig: NextConfig = {
   async rewrites() {
     return [
-      // https://example.com/api/orders  ->  http://54.180.135.117/api/orders
       {
         source: "/api/:path*",
-        destination: "http://54.180.135.117/api/:path*",
+        destination: `${apiUrl}/api/:path*`,
       },
     ];
   },
 };
 
-module.exports = nextConfig;
+export default nextConfig;

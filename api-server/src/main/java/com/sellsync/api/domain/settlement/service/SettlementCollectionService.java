@@ -17,7 +17,9 @@ import com.sellsync.api.domain.settlement.repository.SettlementOrderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -47,18 +49,24 @@ public class SettlementCollectionService {
     private final OrderRepository orderRepository;
     private final ObjectMapper objectMapper;
     private final com.sellsync.api.domain.settlement.service.SettlementService settlementService;
+    private final PlatformTransactionManager transactionManager;
 
     /**
      * 정산 데이터 수집 및 벌크 처리 (메인 메서드)
-     * 
+     *
      * 플로우:
-     * 1. 마켓 API에서 정산 데이터 수집
-     * 2. orderId로 기존 주문 매칭
-     * 3. 주문 테이블에 수수료 정보 벌크 업데이트
-     * 4. SettlementBatch 벌크 UPSERT
-     * 5. SettlementOrder 벌크 UPSERT
+     * 1. 마켓 API에서 정산 데이터 수집 (트랜잭션 외부 - DB 커넥션 점유 방지)
+     * 2. DB 처리 (트랜잭션 내부):
+     *    a. orderId로 기존 주문 매칭
+     *    b. 주문 테이블에 수수료 정보 벌크 업데이트
+     *    c. SettlementBatch 벌크 UPSERT
+     *    d. SettlementOrder 벌크 UPSERT
+     *    e. 배치 상태 자동 전환 (COLLECTED → VALIDATED)
+     *
+     * 트랜잭션 분리:
+     * - 외부 API 호출은 트랜잭션 외부에서 실행하여 DB 커넥션 점유 방지
+     * - DB 쓰기 작업만 TransactionTemplate으로 트랜잭션 처리
      */
-    @Transactional
     public SettlementCollectionResult collectAndProcessSettlements(
             UUID tenantId,
             UUID storeId,
@@ -66,107 +74,104 @@ public class SettlementCollectionService {
             LocalDate startDate,
             LocalDate endDate,
             String credentials) {
-        
-        log.info("[정산 수집 시작] tenantId={}, storeId={}, marketplace={}, period={} ~ {}", 
+
+        log.info("[정산 수집 시작] tenantId={}, storeId={}, marketplace={}, period={} ~ {}",
             tenantId, storeId, marketplace, startDate, endDate);
 
-        // ✅ 주문 수집 상태 사전 체크 (경고용)
+        // ✅ 주문 수집 상태 사전 체크 (경고용 - 트랜잭션 불필요)
         long orderCount = orderRepository.countByStoreIdAndPaidAtBetween(
-                storeId, 
-                startDate.atStartOfDay(), 
+                storeId,
+                startDate.atStartOfDay(),
                 endDate.plusDays(1).atStartOfDay()
         );
         log.info("[정산 수집] 해당 기간 주문 수: {} 건 ({}~{})", orderCount, startDate, endDate);
-        
+
         if (orderCount == 0) {
             log.warn("[정산 수집] ⚠️ 해당 기간에 수집된 주문이 없습니다. 주문 수집을 먼저 실행해주세요.");
         }
 
-        // 1. 마켓 API에서 정산 데이터 수집
+        // 1. 마켓 API에서 정산 데이터 수집 (트랜잭션 외부 - DB 커넥션 점유 방지)
         MarketplaceSettlementClient client = getSettlementClient(marketplace.name());
         List<DailySettlementElement> elements = client.fetchSettlementElements(startDate, endDate, credentials);
-        
+
         log.info("[정산 데이터 수집 완료] count={}", elements.size());
-        
+
         if (elements.isEmpty()) {
             return SettlementCollectionResult.empty();
         }
 
-        // 2. productOrderId(=marketplaceOrderId)로 기존 주문 조회 (벌크)
-        // ⚠️ 정산 API 데이터 구조:
-        //    - orderId: bundle_order_id (묶음 주문, 중복 가능)
-        //    - productOrderId: marketplace_order_id (개별 상품 주문, 고유함)
-        // ⚠️ 정산은 상품별로 오므로 productOrderId로 매칭해야 함
-        // ⚠️ storeId로 필터링하여 동일 테넌트 내 다른 스토어의 주문과 충돌 방지
-        List<String> marketplaceOrderIds = elements.stream()
-                .map(DailySettlementElement::getProductOrderId)
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
-        
-        Map<String, Order> orderMap = orderRepository
-                .findByStoreIdAndMarketplaceOrderIdIn(storeId, marketplaceOrderIds)
-                .stream()
-                .collect(Collectors.toMap(Order::getMarketplaceOrderId, o -> o));
-        
-        log.info("[주문 매칭 완료] 요청={}, 매칭={}", marketplaceOrderIds.size(), orderMap.size());
+        // 2. DB 처리 (트랜잭션 내부)
+        TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+        return txTemplate.execute(status -> {
+            // 2-1. productOrderId(=marketplaceOrderId)로 기존 주문 조회 (벌크)
+            List<String> marketplaceOrderIds = elements.stream()
+                    .map(DailySettlementElement::getProductOrderId)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .toList();
 
-        // 3. 주문 테이블에 수수료 정보 벌크 업데이트
-        int updatedOrders = bulkUpdateOrderSettlementInfo(tenantId, storeId, elements, orderMap, startDate);
-        log.info("[주문 수수료 업데이트 완료] count={}", updatedOrders);
+            Map<String, Order> orderMap = orderRepository
+                    .findByStoreIdAndMarketplaceOrderIdIn(storeId, marketplaceOrderIds)
+                    .stream()
+                    .collect(Collectors.toMap(Order::getMarketplaceOrderId, o -> o));
 
-        // 4. SettlementBatch 생성/업데이트 (일별 배치)
-        Map<String, SettlementBatch> batchMap = createOrUpdateBatches(
-            tenantId, storeId, marketplace, elements, startDate, endDate
-        );
-        log.info("[정산 배치 처리 완료] count={}", batchMap.size());
-        
-        // ✅ 배치 상태 로그 출력 (디버깅용)
-        for (SettlementBatch batch : batchMap.values()) {
-            log.info("[정산 배치 상태 확인] settlementBatchId={}, status={}, cycle={}", 
-                    batch.getSettlementBatchId(), 
-                    batch.getSettlementStatus(), 
-                    batch.getSettlementCycle());
-        }
+            log.info("[주문 매칭 완료] 요청={}, 매칭={}", marketplaceOrderIds.size(), orderMap.size());
 
-        // 5. SettlementOrder 벌크 UPSERT
-        int createdOrders = bulkUpsertSettlementOrders(tenantId, marketplace, elements, orderMap, batchMap);
-        log.info("[정산 주문 생성 완료] count={}", createdOrders);
+            // 2-2. 주문 테이블에 수수료 정보 벌크 업데이트
+            int updatedOrders = bulkUpdateOrderSettlementInfo(tenantId, storeId, elements, orderMap, startDate);
+            log.info("[주문 수수료 업데이트 완료] count={}", updatedOrders);
 
-        // 6. 자동으로 VALIDATED 상태로 전환 (데이터 수집 완료 = 검증 완료로 간주)
-        // ✅ COLLECTED 상태인 배치만 VALIDATED로 전환 (이미 VALIDATED 상태면 스킵)
-        int validatedBatchCount = 0;
-        int alreadyValidatedCount = 0;
-        for (SettlementBatch batch : batchMap.values()) {
-            try {
-                if (batch.getSettlementStatus() == SettlementStatus.COLLECTED) {
-                    settlementService.markAsValidated(batch.getSettlementBatchId());
-                    validatedBatchCount++;
-                    log.info("[정산 배치 자동 검증 완료] settlementBatchId={}, status: COLLECTED → VALIDATED", 
-                            batch.getSettlementBatchId());
-                } else if (batch.getSettlementStatus() == SettlementStatus.VALIDATED) {
-                    alreadyValidatedCount++;
-                    log.info("[정산 배치 자동 검증 스킵] settlementBatchId={}, status: VALIDATED (이미 검증됨)", 
-                            batch.getSettlementBatchId());
-                } else {
-                    log.warn("[정산 배치 자동 검증 스킵] settlementBatchId={}, status: {} (예상치 못한 상태)", 
-                            batch.getSettlementBatchId(), batch.getSettlementStatus());
-                }
-            } catch (Exception e) {
-                log.warn("[정산 배치 자동 검증 실패] settlementBatchId={}, error={}", 
-                        batch.getSettlementBatchId(), e.getMessage());
+            // 2-3. SettlementBatch 생성/업데이트 (일별 배치)
+            Map<String, SettlementBatch> batchMap = createOrUpdateBatches(
+                tenantId, storeId, marketplace, elements, startDate, endDate
+            );
+            log.info("[정산 배치 처리 완료] count={}", batchMap.size());
+
+            for (SettlementBatch batch : batchMap.values()) {
+                log.info("[정산 배치 상태 확인] settlementBatchId={}, status={}, cycle={}",
+                        batch.getSettlementBatchId(),
+                        batch.getSettlementStatus(),
+                        batch.getSettlementCycle());
             }
-        }
-        log.info("[정산 배치 자동 검증 완료] 신규 검증: {}, 이미 검증됨: {}, 전체: {}", 
-                validatedBatchCount, alreadyValidatedCount, batchMap.size());
 
-        return SettlementCollectionResult.builder()
-                .totalElements(elements.size())
-                .matchedOrders(orderMap.size())
-                .updatedOrders(updatedOrders)
-                .createdBatches(batchMap.size())
-                .createdSettlementOrders(createdOrders)
-                .build();
+            // 2-4. SettlementOrder 벌크 UPSERT
+            int createdOrders = bulkUpsertSettlementOrders(tenantId, marketplace, elements, orderMap, batchMap);
+            log.info("[정산 주문 생성 완료] count={}", createdOrders);
+
+            // 2-5. 자동으로 VALIDATED 상태로 전환
+            int validatedBatchCount = 0;
+            int alreadyValidatedCount = 0;
+            for (SettlementBatch batch : batchMap.values()) {
+                try {
+                    if (batch.getSettlementStatus() == SettlementStatus.COLLECTED) {
+                        settlementService.markAsValidated(batch.getSettlementBatchId());
+                        validatedBatchCount++;
+                        log.info("[정산 배치 자동 검증 완료] settlementBatchId={}, status: COLLECTED → VALIDATED",
+                                batch.getSettlementBatchId());
+                    } else if (batch.getSettlementStatus() == SettlementStatus.VALIDATED) {
+                        alreadyValidatedCount++;
+                        log.info("[정산 배치 자동 검증 스킵] settlementBatchId={}, status: VALIDATED (이미 검증됨)",
+                                batch.getSettlementBatchId());
+                    } else {
+                        log.warn("[정산 배치 자동 검증 스킵] settlementBatchId={}, status: {} (예상치 못한 상태)",
+                                batch.getSettlementBatchId(), batch.getSettlementStatus());
+                    }
+                } catch (Exception e) {
+                    log.warn("[정산 배치 자동 검증 실패] settlementBatchId={}, error={}",
+                            batch.getSettlementBatchId(), e.getMessage());
+                }
+            }
+            log.info("[정산 배치 자동 검증 완료] 신규 검증: {}, 이미 검증됨: {}, 전체: {}",
+                    validatedBatchCount, alreadyValidatedCount, batchMap.size());
+
+            return SettlementCollectionResult.builder()
+                    .totalElements(elements.size())
+                    .matchedOrders(orderMap.size())
+                    .updatedOrders(updatedOrders)
+                    .createdBatches(batchMap.size())
+                    .createdSettlementOrders(createdOrders)
+                    .build();
+        });
     }
 
     /**

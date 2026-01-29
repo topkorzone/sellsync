@@ -15,8 +15,8 @@ import com.sellsync.api.domain.posting.enums.PostingType;
 import com.sellsync.api.domain.posting.exception.InvalidStateTransitionException;
 import com.sellsync.api.domain.posting.exception.PostingNotFoundException;
 import com.sellsync.api.domain.posting.repository.PostingRepository;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -38,6 +38,7 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class PostingService {
 
     private final PostingRepository postingRepository;
@@ -45,23 +46,6 @@ public class PostingService {
     private final TemplateBasedPostingBuilder templateBasedPostingBuilder;
     private final com.sellsync.api.domain.store.repository.StoreRepository storeRepository;
     private final com.sellsync.api.domain.mapping.service.ProductMappingService productMappingService;
-    private final OrderSettlementPostingService orderSettlementPostingService;
-
-    // Constructor with @Lazy for circular dependency resolution
-    public PostingService(
-            PostingRepository postingRepository,
-            OrderRepository orderRepository,
-            TemplateBasedPostingBuilder templateBasedPostingBuilder,
-            com.sellsync.api.domain.store.repository.StoreRepository storeRepository,
-            com.sellsync.api.domain.mapping.service.ProductMappingService productMappingService,
-            @Lazy OrderSettlementPostingService orderSettlementPostingService) {
-        this.postingRepository = postingRepository;
-        this.orderRepository = orderRepository;
-        this.templateBasedPostingBuilder = templateBasedPostingBuilder;
-        this.storeRepository = storeRepository;
-        this.productMappingService = productMappingService;
-        this.orderSettlementPostingService = orderSettlementPostingService;
-    }
 
     /**
      * 전표 생성/조회 (멱등 Upsert)
@@ -450,27 +434,7 @@ public class PostingService {
             throw new IllegalStateException(errorMsg);
         }
 
-        // 3. 정산 완료 주문(COLLECTED)인 경우 통합 전표 생성 사용
-        if (order.getSettlementStatus() == com.sellsync.api.domain.order.enums.SettlementCollectionStatus.COLLECTED) {
-            log.info("[정산 완료 주문 - 통합 전표 생성 사용] orderId={}, bundleOrderId={}", 
-                orderId, order.getBundleOrderId());
-            
-            String bundleOrderId = order.getBundleOrderId() != null ? 
-                order.getBundleOrderId() : order.getMarketplaceOrderId();
-            
-            try {
-                PostingResponse posting = orderSettlementPostingService.createPostingsForSettledOrder(
-                    bundleOrderId, "ECOUNT"
-                );
-                return List.of(posting);
-            } catch (Exception e) {
-                log.error("[통합 전표 생성 실패 - 기본 방식으로 폴백] orderId={}, error={}", 
-                    orderId, e.getMessage(), e);
-                // 폴백: 기존 방식으로 계속 진행
-            }
-        }
-
-        // 4. 일반 주문 또는 폴백: 기존 방식 사용
+        // 3. 일반 전표 생성 (정산 라우팅은 PostingFacadeService에서 처리)
         List<PostingResponse> createdPostings = new ArrayList<>();
         List<PostingType> typesToCreate = determinePostingTypes(request, order);
 

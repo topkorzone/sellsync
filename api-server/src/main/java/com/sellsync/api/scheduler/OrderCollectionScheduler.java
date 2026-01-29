@@ -6,6 +6,7 @@ import com.sellsync.api.domain.store.entity.Store;
 import com.sellsync.api.domain.store.repository.StoreRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Async;
@@ -72,13 +73,14 @@ public class OrderCollectionScheduler {
      * - 시간 분산으로 API Rate Limit 자연스러운 회피
      */
     @Scheduled(cron = "${scheduling.order-collection.cron:0 0 * * * *}") // 매 1시간 (기본값)
+    @SchedulerLock(name = "collectOrdersScheduled", lockAtLeastFor = "PT5M", lockAtMostFor = "PT55M")
     public void collectOrdersScheduled() {
-        // 중복 실행 방지
+        // 중복 실행 방지 (단일 JVM 내 보호, 분산 환경은 ShedLock이 처리)
         if (isRunning) {
             log.warn("[OrderCollectionScheduler] Previous collection still running, skipping this execution");
             return;
         }
-        
+
         isRunning = true;
         try {
             log.info("=== [OrderCollectionScheduler] Starting scheduled collection (PARALLEL={}) ===", ENABLE_PARALLEL);

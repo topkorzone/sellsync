@@ -19,8 +19,8 @@ import com.sellsync.api.domain.mapping.dto.ProductMappingResponse;
 import com.sellsync.api.domain.settlement.entity.SettlementOrder;
 import com.sellsync.api.domain.settlement.entity.SettlementOrderItem;
 import com.sellsync.api.domain.settlement.repository.SettlementOrderRepository;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,6 +42,7 @@ import java.util.*;
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class OrderSettlementPostingService {
 
     private final OrderRepository orderRepository;
@@ -54,26 +55,6 @@ public class OrderSettlementPostingService {
     private final TemplateBasedPostingBuilder templateBasedPostingBuilder;
 
     private static final DateTimeFormatter IO_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
-
-    // Constructor with @Lazy for circular dependency resolution
-    public OrderSettlementPostingService(
-            OrderRepository orderRepository,
-            @Lazy PostingService postingService,
-            ErpConfigRepository erpConfigRepository,
-            ErpItemRepository erpItemRepository,
-            StoreRepository storeRepository,
-            ProductMappingService productMappingService,
-            SettlementOrderRepository settlementOrderRepository,
-            TemplateBasedPostingBuilder templateBasedPostingBuilder) {
-        this.orderRepository = orderRepository;
-        this.postingService = postingService;
-        this.erpConfigRepository = erpConfigRepository;
-        this.erpItemRepository = erpItemRepository;
-        this.storeRepository = storeRepository;
-        this.productMappingService = productMappingService;
-        this.settlementOrderRepository = settlementOrderRepository;
-        this.templateBasedPostingBuilder = templateBasedPostingBuilder;
-    }
 
     /**
      * 정산 수집된 주문에 대한 전표 생성 (한 셋트로 통합)

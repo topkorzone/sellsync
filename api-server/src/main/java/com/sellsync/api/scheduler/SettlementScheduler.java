@@ -16,6 +16,7 @@ import com.sellsync.api.domain.store.repository.StoreRepository;
 import com.sellsync.api.domain.tenant.entity.Tenant;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -76,6 +77,7 @@ public class SettlementScheduler {
      */
      @Scheduled(cron = "0 0 1 * * *") // 매일 새벽 1시
 //    @Scheduled(cron = "0 */10 * * * *") // 10분마다 (테스트용)
+    @SchedulerLock(name = "collectDailySettlements", lockAtLeastFor = "PT5M", lockAtMostFor = "PT2H")
     public void collectDailySettlements() {
         log.info("========================================");
         log.info("[스케줄러] 일별 정산 수집 및 자동 처리 시작");
@@ -306,18 +308,15 @@ public class SettlementScheduler {
                 log.info("========================================");
                 
                 // COLLECTED 상태 주문 조회 (items JOIN FETCH, 최대 50건)
+                // 성능 최적화: tenantId로 DB 레벨 필터링 (Java 필터링 제거)
                 log.info("[스케줄러] COLLECTED 상태 주문 조회 중... (페이지: {}, 최대 {} 건)", currentPage, MAX_ORDERS_PER_POSTING);
-                
-                List<Order> collectedOrders = orderRepository
-                        .findBySettlementStatusOrderByPaidAtAsc(
+
+                List<Order> tenantOrders = orderRepository
+                        .findByTenantIdAndSettlementStatusOrderByPaidAtAsc(
+                            tenantId,
                             SettlementCollectionStatus.COLLECTED,
                             PageRequest.of(currentPage, MAX_ORDERS_PER_POSTING)
                         );
-                
-                // 테넌트 필터링
-                List<Order> tenantOrders = collectedOrders.stream()
-                        .filter(o -> o.getTenantId().equals(tenantId))
-                        .toList();
                 
                 log.info("[스케줄러] 전표 생성 대상 주문: {} 건", tenantOrders.size());
                 

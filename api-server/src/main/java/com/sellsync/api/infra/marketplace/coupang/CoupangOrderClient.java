@@ -6,6 +6,8 @@ import com.sellsync.api.domain.order.client.MarketplaceOrderClient;
 import com.sellsync.api.domain.order.dto.MarketplaceOrderDto;
 import com.sellsync.api.domain.order.dto.MarketplaceOrderItemDto;
 import com.sellsync.api.domain.order.enums.Marketplace;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.retry.Retry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
@@ -18,6 +20,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * 쿠팡 주문 수집 클라이언트 (WING API)
@@ -34,6 +37,8 @@ public class CoupangOrderClient implements MarketplaceOrderClient {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final CoupangHmacGenerator hmacGenerator;
+    private final CircuitBreaker coupangCircuitBreaker;
+    private final Retry coupangRetry;
 
     @Override
     public Marketplace getMarketplace() {
@@ -163,17 +168,26 @@ public class CoupangOrderClient implements MarketplaceOrderClient {
         HttpEntity<Void> request = new HttpEntity<>(headers);
 
         try {
-            ResponseEntity<String> response = restTemplate.exchange(
-                    url, 
-                    HttpMethod.GET, 
-                    request, 
-                    String.class);
+            // Circuit Breaker + Retry 적용: 장애 시 빠른 실패 + 일시적 오류 재시도
+            Supplier<ResponseEntity<String>> decoratedSupplier =
+                    Retry.decorateSupplier(coupangRetry,
+                            CircuitBreaker.decorateSupplier(coupangCircuitBreaker,
+                                    () -> restTemplate.exchange(
+                                            url,
+                                            HttpMethod.GET,
+                                            request,
+                                            String.class)));
+
+            ResponseEntity<String> response = decoratedSupplier.get();
 
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 return response.getBody();
             }
             return null;
-            
+
+        } catch (io.github.resilience4j.circuitbreaker.CallNotPermittedException e) {
+            log.error("[Coupang] Circuit breaker OPEN - API calls blocked: {}", e.getMessage());
+            throw new RuntimeException("Coupang API circuit breaker open", e);
         } catch (HttpClientErrorException e) {
             log.error("[Coupang] API error: {} - {}", e.getStatusCode(), e.getResponseBodyAsString());
             throw new RuntimeException("Coupang API error: " + e.getMessage(), e);

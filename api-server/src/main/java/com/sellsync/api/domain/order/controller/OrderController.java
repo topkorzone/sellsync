@@ -7,6 +7,8 @@ import com.sellsync.api.domain.order.enums.SettlementCollectionStatus;
 import com.sellsync.api.domain.order.exception.OrderNotFoundException;
 import com.sellsync.api.domain.order.service.OrderService;
 import com.sellsync.api.security.CustomUserDetails;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -16,6 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -30,6 +33,7 @@ import java.util.UUID;
  * - GET    /api/orders/{orderId}      : 주문 상세 조회
  */
 @Slf4j
+@Validated
 @RestController
 @RequestMapping("/api/orders")
 @RequiredArgsConstructor
@@ -76,8 +80,8 @@ public class OrderController {
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "50") @Min(1) @Max(1000) int size
     ) {
         UUID tenantId = user.getTenantId();
         log.info("[주문 목록 조회 요청] tenantId={}, status={}, marketplace={}, storeId={}, settlementStatus={}, search={}, from={}, to={}, page={}, size={}",
@@ -133,17 +137,36 @@ public class OrderController {
      * }
      */
     @GetMapping("/{orderId}")
-    public ResponseEntity<Map<String, Object>> getOrder(@PathVariable UUID orderId) {
-        log.info("[주문 상세 조회 요청] orderId={}", orderId);
+    @PreAuthorize("hasAnyRole('VIEWER', 'OPERATOR', 'TENANT_ADMIN', 'SUPER_ADMIN')")
+    public ResponseEntity<Map<String, Object>> getOrder(
+            @AuthenticationPrincipal CustomUserDetails user,
+            @PathVariable UUID orderId) {
+        UUID tenantId = user.getTenantId();
+        log.info("[주문 상세 조회 요청] tenantId={}, orderId={}", tenantId, orderId);
 
         try {
             OrderResponse order = orderService.getById(orderId);
+
+            // 테넌트 격리: 다른 테넌트의 주문 접근 차단
+            if (!order.getTenantId().equals(tenantId)) {
+                log.warn("[주문 접근 권한 없음] tenantId={}, orderId={}, orderTenantId={}",
+                        tenantId, orderId, order.getTenantId());
+
+                Map<String, Object> error = new HashMap<>();
+                error.put("ok", false);
+                error.put("error", Map.of(
+                        "code", "ACCESS_DENIED",
+                        "message", "해당 주문에 대한 접근 권한이 없습니다"
+                ));
+
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
+            }
 
             Map<String, Object> result = new HashMap<>();
             result.put("ok", true);
             result.put("data", order);
 
-            log.info("[주문 상세 조회 성공] orderId={}, status={}", orderId, order.getOrderStatus());
+            log.info("[주문 상세 조회 성공] tenantId={}, orderId={}, status={}", tenantId, orderId, order.getOrderStatus());
             return ResponseEntity.ok(result);
 
         } catch (OrderNotFoundException e) {

@@ -263,7 +263,20 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
            "WHERE o.settlementStatus = :settlementStatus " +
            "ORDER BY o.paidAt ASC")
     List<Order> findBySettlementStatusOrderByPaidAtAsc(
-            @Param("settlementStatus") SettlementCollectionStatus settlementStatus, 
+            @Param("settlementStatus") SettlementCollectionStatus settlementStatus,
+            Pageable pageable
+    );
+
+    // 4-1. 테넌트별 정산 수집 완료(COLLECTED) 상태 주문 조회 (items JOIN FETCH 포함)
+    // 성능 최적화: tenantId로 DB 레벨 필터링하여 불필요한 데이터 로드 방지
+    @Query("SELECT DISTINCT o FROM Order o " +
+           "LEFT JOIN FETCH o.items " +
+           "WHERE o.tenantId = :tenantId " +
+           "AND o.settlementStatus = :settlementStatus " +
+           "ORDER BY o.paidAt ASC")
+    List<Order> findByTenantIdAndSettlementStatusOrderByPaidAtAsc(
+            @Param("tenantId") UUID tenantId,
+            @Param("settlementStatus") SettlementCollectionStatus settlementStatus,
             Pageable pageable
     );
 

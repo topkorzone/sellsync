@@ -8,6 +8,9 @@ import com.sellsync.api.domain.posting.dto.PostingResponse;
 import com.sellsync.api.domain.posting.service.OrderSettlementPostingService;
 import com.sellsync.api.domain.posting.service.PostingExecutor;
 import com.sellsync.api.domain.posting.service.PostingExecutorService;
+import com.sellsync.api.domain.tenant.entity.Tenant;
+import com.sellsync.api.domain.tenant.enums.TenantStatus;
+import com.sellsync.api.domain.tenant.repository.TenantRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -40,6 +43,7 @@ public class PostingScheduler {
     private final OrderSettlementPostingService orderSettlementPostingService;
     private final OrderRepository orderRepository;
     private final com.sellsync.api.domain.order.service.OrderService orderService;
+    private final TenantRepository tenantRepository;
 
     /**
      * READY 상태 전표 자동 전송 (조건부 실행)
@@ -56,44 +60,51 @@ public class PostingScheduler {
         try {
             log.debug("[스케줄러] READY 전표 전송 체크");
 
-            // TODO: 실제 운영에서는 tenant 목록 조회 및 반복 처리
-            UUID tenantId = getTenantId(); // Mock
             String erpCode = "ECOUNT";
 
-            // ✅ 자동 전송 설정 확인
-            boolean autoSendEnabled = erpConfigService.isAutoSendEnabled(tenantId, erpCode);
-            
-            if (!autoSendEnabled) {
-                log.debug("[스케줄러] 자동 전송 비활성화 - 스킵 (tenant={}, erp={})", tenantId, erpCode);
-                return;
+            // 전체 활성 테넌트 순회
+            List<Tenant> activeTenants = tenantRepository.findByStatus(TenantStatus.ACTIVE);
+            for (Tenant tenant : activeTenants) {
+                UUID tenantId = tenant.getTenantId();
+                try {
+                    // 자동 전송 설정 확인
+                    boolean autoSendEnabled = erpConfigService.isAutoSendEnabled(tenantId, erpCode);
+
+                    if (!autoSendEnabled) {
+                        log.debug("[스케줄러] 자동 전송 비활성화 - 스킵 (tenant={}, erp={})", tenantId, erpCode);
+                        continue;
+                    }
+
+                    log.info("[스케줄러] READY 전표 전송 시작 (tenant={})", tenantId);
+
+                    String erpCredentials = getErpCredentials(tenantId, erpCode);
+
+                    // READY 상태 전표 조회 (최대 10건)
+                    List<PostingResponse> readyPostings = postingExecutorService.findReadyPostings(tenantId, erpCode);
+
+                    if (readyPostings.isEmpty()) {
+                        log.debug("[스케줄러] 전송할 READY 전표 없음 (tenant={})", tenantId);
+                        continue;
+                    }
+
+                    log.info("[스케줄러] READY 전표 발견: {} 건 (tenant={})", readyPostings.size(), tenantId);
+
+                    // 비동기 전송
+                    List<UUID> postingIds = readyPostings.stream()
+                            .limit(10) // 한 번에 최대 10건
+                            .map(PostingResponse::getPostingId)
+                            .toList();
+
+                    postingExecutor.executeBatchAsync(postingIds, erpCredentials);
+
+                    log.info("[스케줄러] READY 전표 전송 완료: {} 건 전송 시작 (tenant={})", postingIds.size(), tenantId);
+                } catch (Exception e) {
+                    log.error("[스케줄러] READY 전표 전송 실패 (tenant={}): {}", tenantId, e.getMessage(), e);
+                }
             }
-
-            log.info("[스케줄러] READY 전표 전송 시작 (자동화 활성화)");
-
-            String erpCredentials = getErpCredentials(tenantId, erpCode); // Mock
-
-            // READY 상태 전표 조회 (최대 10건)
-            List<PostingResponse> readyPostings = postingExecutorService.findReadyPostings(tenantId, erpCode);
-
-            if (readyPostings.isEmpty()) {
-                log.debug("[스케줄러] 전송할 READY 전표 없음");
-                return;
-            }
-
-            log.info("[스케줄러] READY 전표 발견: {} 건", readyPostings.size());
-
-            // 비동기 전송
-            List<UUID> postingIds = readyPostings.stream()
-                    .limit(10) // 한 번에 최대 10건
-                    .map(PostingResponse::getPostingId)
-                    .toList();
-
-            postingExecutor.executeBatchAsync(postingIds, erpCredentials);
-
-            log.info("[스케줄러] READY 전표 전송 완료: {} 건 전송 시작", postingIds.size());
 
         } catch (Exception e) {
-            log.error("[스케줄러] READY 전표 전송 실패: {}", e.getMessage(), e);
+            log.error("[스케줄러] READY 전표 전송 배치 실패: {}", e.getMessage(), e);
         }
     }
 
@@ -109,44 +120,51 @@ public class PostingScheduler {
         try {
             log.debug("[스케줄러] 재시도 대상 전표 체크");
 
-            // TODO: 실제 운영에서는 tenant 목록 조회 및 반복 처리
-            UUID tenantId = getTenantId(); // Mock
             String erpCode = "ECOUNT";
 
-            // ✅ 자동 전송 설정 확인 (재시도도 자동 전송 설정을 따름)
-            boolean autoSendEnabled = erpConfigService.isAutoSendEnabled(tenantId, erpCode);
-            
-            if (!autoSendEnabled) {
-                log.debug("[스케줄러] 자동 재시도 비활성화 - 스킵 (tenant={}, erp={})", tenantId, erpCode);
-                return;
+            // 전체 활성 테넌트 순회
+            List<Tenant> activeTenants = tenantRepository.findByStatus(TenantStatus.ACTIVE);
+            for (Tenant tenant : activeTenants) {
+                UUID tenantId = tenant.getTenantId();
+                try {
+                    // 자동 전송 설정 확인 (재시도도 자동 전송 설정을 따름)
+                    boolean autoSendEnabled = erpConfigService.isAutoSendEnabled(tenantId, erpCode);
+
+                    if (!autoSendEnabled) {
+                        log.debug("[스케줄러] 자동 재시도 비활성화 - 스킵 (tenant={}, erp={})", tenantId, erpCode);
+                        continue;
+                    }
+
+                    log.info("[스케줄러] 재시도 대상 전표 조회 시작 (tenant={})", tenantId);
+
+                    String erpCredentials = getErpCredentials(tenantId, erpCode);
+
+                    // 재시도 대상 전표 조회
+                    List<PostingResponse> retryablePostings = postingExecutorService.findRetryablePostings(tenantId, erpCode);
+
+                    if (retryablePostings.isEmpty()) {
+                        log.debug("[스케줄러] 재시도 대상 전표 없음 (tenant={})", tenantId);
+                        continue;
+                    }
+
+                    log.info("[스케줄러] 재시도 대상 발견: {} 건 (tenant={})", retryablePostings.size(), tenantId);
+
+                    // 비동기 재시도
+                    List<UUID> postingIds = retryablePostings.stream()
+                            .limit(10) // 한 번에 최대 10건
+                            .map(PostingResponse::getPostingId)
+                            .toList();
+
+                    postingExecutor.retryBatchAsync(postingIds, erpCredentials);
+
+                    log.info("[스케줄러] 재시도 전표 전송 완료: {} 건 재시도 시작 (tenant={})", postingIds.size(), tenantId);
+                } catch (Exception e) {
+                    log.error("[스케줄러] 재시도 전표 전송 실패 (tenant={}): {}", tenantId, e.getMessage(), e);
+                }
             }
-
-            log.info("[스케줄러] 재시도 대상 전표 조회 시작 (자동화 활성화)");
-
-            String erpCredentials = getErpCredentials(tenantId, erpCode); // Mock
-
-            // 재시도 대상 전표 조회
-            List<PostingResponse> retryablePostings = postingExecutorService.findRetryablePostings(tenantId, erpCode);
-
-            if (retryablePostings.isEmpty()) {
-                log.debug("[스케줄러] 재시도 대상 전표 없음");
-                return;
-            }
-
-            log.info("[스케줄러] 재시도 대상 발견: {} 건", retryablePostings.size());
-
-            // 비동기 재시도
-            List<UUID> postingIds = retryablePostings.stream()
-                    .limit(10) // 한 번에 최대 10건
-                    .map(PostingResponse::getPostingId)
-                    .toList();
-
-            postingExecutor.retryBatchAsync(postingIds, erpCredentials);
-
-            log.info("[스케줄러] 재시도 전표 전송 완료: {} 건 재시도 시작", postingIds.size());
 
         } catch (Exception e) {
-            log.error("[스케줄러] 재시도 전표 전송 실패: {}", e.getMessage(), e);
+            log.error("[스케줄러] 재시도 전표 전송 배치 실패: {}", e.getMessage(), e);
         }
     }
 
@@ -166,73 +184,75 @@ public class PostingScheduler {
         try {
             log.debug("[스케줄러] 정산 전표 생성 체크");
 
-            // settlement_status = COLLECTED 인 주문 조회 (최대 100건)
-            List<Order> settledOrders = orderRepository.findBySettlementStatusOrderByPaidAtAsc(
-                    SettlementCollectionStatus.COLLECTED, 
-                    PageRequest.of(0, 100)
-            );
-
-            if (settledOrders.isEmpty()) {
-                log.debug("[스케줄러] 정산 전표 생성 대상 없음");
-                return;
-            }
-
-            log.info("[스케줄러] 정산 전표 생성 시작: 대상 주문 {} 건", settledOrders.size());
-
-            int successCount = 0;
-            int failureCount = 0;
-            int skippedCount = 0;
             String erpCode = "ECOUNT";
 
-            // 각 주문에 대해 전표 생성 시도
-            for (Order order : settledOrders) {
+            // 전체 활성 테넌트 순회
+            List<Tenant> activeTenants = tenantRepository.findByStatus(TenantStatus.ACTIVE);
+            for (Tenant tenant : activeTenants) {
+                UUID tenantId = tenant.getTenantId();
                 try {
-                    // ✅ 상품 매핑 완료 여부 사전 체크 (주문 리스트와 동일한 로직)
-                    if (!orderService.isReadyForPosting(order)) {
-                        skippedCount++;
-                        log.debug("[정산 전표 생성 스킵 - 상품매핑 미완료] orderId={}, marketplaceOrderId={}", 
-                                order.getOrderId(), order.getMarketplaceOrderId());
+                    // tenantId로 DB 레벨 필터링하여 COLLECTED 주문 조회 (최대 100건)
+                    List<Order> settledOrders = orderRepository.findByTenantIdAndSettlementStatusOrderByPaidAtAsc(
+                            tenantId,
+                            SettlementCollectionStatus.COLLECTED,
+                            PageRequest.of(0, 100)
+                    );
+
+                    if (settledOrders.isEmpty()) {
+                        log.debug("[스케줄러] 정산 전표 생성 대상 없음 (tenant={})", tenantId);
                         continue;
                     }
-                    if(order.getBundleOrderId().equals("640813931282454")){
-                         System.out.println("debug");
+
+                    log.info("[스케줄러] 정산 전표 생성 시작: 대상 주문 {} 건 (tenant={})", settledOrders.size(), tenantId);
+
+                    int successCount = 0;
+                    int failureCount = 0;
+                    int skippedCount = 0;
+
+                    // 각 주문에 대해 전표 생성 시도
+                    for (Order order : settledOrders) {
+                        try {
+                            // 상품 매핑 완료 여부 사전 체크
+                            if (!orderService.isReadyForPosting(order)) {
+                                skippedCount++;
+                                log.debug("[정산 전표 생성 스킵 - 상품매핑 미완료] orderId={}, marketplaceOrderId={}",
+                                        order.getOrderId(), order.getMarketplaceOrderId());
+                                continue;
+                            }
+
+                            // 통합 전표 생성 (한 주문당 1개의 전표)
+                            PostingResponse createdPosting = orderSettlementPostingService
+                                    .createPostingsForSettledOrder(order.getBundleOrderId(), erpCode);
+
+                            successCount++;
+                            log.debug("[정산 전표 생성 성공] orderId={}, postingId={}",
+                                    order.getOrderId(), createdPosting.getPostingId());
+
+                        } catch (Exception e) {
+                            failureCount++;
+                            log.error("[정산 전표 생성 실패] orderId={}, error={}",
+                                    order.getOrderId(), e.getMessage(), e);
+                        }
                     }
-                    // 통합 전표 생성 (한 주문당 1개의 전표)
-                    PostingResponse createdPosting = orderSettlementPostingService
-                            .createPostingsForSettledOrder(order.getBundleOrderId(), erpCode);
-                    
-                    successCount++;
-                    log.debug("[정산 전표 생성 성공] orderId={}, postingId={}", 
-                            order.getOrderId(), createdPosting.getPostingId());
-                    
+
+                    log.info("[스케줄러] 정산 전표 생성 완료 (tenant={}): 성공 {} 건, 실패 {} 건, 스킵 {} 건 (상품매핑 미완료)",
+                            tenantId, successCount, failureCount, skippedCount);
+
                 } catch (Exception e) {
-                    failureCount++;
-                    log.error("[정산 전표 생성 실패] orderId={}, error={}", 
-                            order.getOrderId(), e.getMessage(), e);
-                    // 개별 실패는 로그만 남기고 다음 주문 계속 처리
+                    log.error("[스케줄러] 정산 전표 생성 실패 (tenant={}): {}", tenantId, e.getMessage(), e);
                 }
             }
-
-            log.info("[스케줄러] 정산 전표 생성 완료: 성공 {} 건, 실패 {} 건, 스킵 {} 건 (상품매핑 미완료)", 
-                    successCount, failureCount, skippedCount);
 
         } catch (Exception e) {
             log.error("[스케줄러] 정산 전표 생성 배치 실패: {}", e.getMessage(), e);
         }
     }
 
-    // ========== Mock Helper Methods ==========
-    // TODO: 실제 구현 시 제거 또는 실제 로직으로 대체
-
-    private UUID getTenantId() {
-        // Mock: 실제로는 tenant 목록 조회
-        // ⚠️ 실제 DB의 Tenant ID로 수정됨 (2026-01-16)
-        return UUID.fromString("11111111-1111-1111-1111-111111111111");
-    }
+    // ========== Helper Methods ==========
 
     private String getErpCredentials(UUID tenantId, String erpCode) {
-        // Mock: 실제로는 tenant별 ERP 인증 정보 조회
-        return String.format("{\"tenantId\":\"%s\",\"erpCode\":\"%s\",\"apiKey\":\"mock-key\"}", 
+        // TODO: ErpConfig 테이블 또는 Credential 테이블에서 조회
+        return String.format("{\"tenantId\":\"%s\",\"erpCode\":\"%s\",\"apiKey\":\"mock-key\"}",
             tenantId, erpCode);
     }
 }

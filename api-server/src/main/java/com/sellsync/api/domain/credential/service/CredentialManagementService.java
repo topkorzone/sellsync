@@ -108,15 +108,15 @@ public class CredentialManagementService {
 
     /**
      * Tenant의 모든 Credential 조회 (메타 정보만)
+     *
+     * 보안/성능 수정: findAll() → findByTenantId()로 교체
+     * - 다른 테넌트 데이터가 메모리에 로드되지 않도록 DB 레벨 필터링
      */
     @Transactional(readOnly = true)
     public List<CredentialResponse> getCredentialsByTenant(UUID tenantId) {
         log.debug("[CredentialManagement] Fetching credentials for tenantId={}", tenantId);
-        
-        List<Credential> credentials = credentialRepository.findAll()
-                .stream()
-                .filter(c -> c.getTenantId().equals(tenantId))
-                .collect(Collectors.toList());
+
+        List<Credential> credentials = credentialRepository.findByTenantId(tenantId);
 
         return credentials.stream()
                 .map(CredentialResponse::from)
@@ -125,16 +125,15 @@ public class CredentialManagementService {
 
     /**
      * Store의 모든 Credential 조회 (메타 정보만)
+     *
+     * 보안/성능 수정: findAll() → findByTenantIdAndStoreId()로 교체
+     * - 다른 테넌트 데이터가 메모리에 로드되지 않도록 DB 레벨 필터링
      */
     @Transactional(readOnly = true)
     public List<CredentialResponse> getCredentialsByStore(UUID tenantId, UUID storeId) {
         log.debug("[CredentialManagement] Fetching credentials for tenantId={}, storeId={}", tenantId, storeId);
-        
-        List<Credential> credentials = credentialRepository.findAll()
-                .stream()
-                .filter(c -> c.getTenantId().equals(tenantId) && 
-                           (c.getStoreId() == null || c.getStoreId().equals(storeId)))
-                .collect(Collectors.toList());
+
+        List<Credential> credentials = credentialRepository.findByTenantIdAndStoreId(tenantId, storeId);
 
         return credentials.stream()
                 .map(CredentialResponse::from)

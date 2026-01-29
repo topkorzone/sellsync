@@ -7,9 +7,12 @@ import com.sellsync.api.domain.posting.enums.PostingStatus;
 import com.sellsync.api.domain.posting.enums.PostingType;
 import com.sellsync.api.domain.posting.exception.PostingNotFoundException;
 import com.sellsync.api.domain.posting.service.PostingExecutorService;
+import com.sellsync.api.domain.posting.service.PostingFacadeService;
 import com.sellsync.api.domain.posting.service.PostingService;
 import com.sellsync.api.security.CustomUserDetails;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotEmpty;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +24,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -39,12 +43,14 @@ import java.util.UUID;
  * - POST   /api/orders/{orderId}/erp/cancel       : 취소 전표 생성
  */
 @Slf4j
+@Validated
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor
 public class PostingController {
 
     private final PostingService postingService;
+    private final PostingFacadeService postingFacadeService;
     private final PostingExecutorService postingExecutorService;
 
     /**
@@ -78,8 +84,8 @@ public class PostingController {
             @RequestParam(required = false) UUID orderId,
             @RequestParam(required = false) PostingStatus status,
             @RequestParam(required = false) PostingType postingType,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "50") @Min(1) @Max(1000) int size
     ) {
         UUID tenantId = user.getTenantId();
         log.info("[전표 목록 조회 요청] tenantId={}, orderId={}, status={}, type={}, page={}, size={}",
@@ -336,7 +342,7 @@ public class PostingController {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
             }
 
-            List<PostingResponse> documents = postingService.createPostingsForOrder(orderId, request);
+            List<PostingResponse> documents = postingFacadeService.createPostingsForOrder(orderId, request);
 
             Map<String, Object> result = new HashMap<>();
             result.put("ok", true);
@@ -679,7 +685,7 @@ public class PostingController {
                     CreatePostingRequestDto createRequest = new CreatePostingRequestDto();
                     createRequest.setMode(request.getMode());
                     
-                    List<PostingResponse> documents = postingService.createPostingsForOrder(orderId, createRequest);
+                    List<PostingResponse> documents = postingFacadeService.createPostingsForOrder(orderId, createRequest);
                     success++;
                     
                     details.add(Map.of(

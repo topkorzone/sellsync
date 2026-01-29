@@ -6,6 +6,8 @@ import com.sellsync.api.domain.order.client.MarketplaceOrderClient;
 import com.sellsync.api.domain.order.dto.MarketplaceOrderDto;
 import com.sellsync.api.domain.order.dto.MarketplaceOrderItemDto;
 import com.sellsync.api.domain.order.enums.Marketplace;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.retry.Retry;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +22,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * 네이버 스마트스토어 주문 수집 클라이언트 (커머스 API)
@@ -37,6 +40,8 @@ public class SmartStoreOrderClient implements MarketplaceOrderClient {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final SmartStoreTokenService tokenService;
+    private final CircuitBreaker smartStoreCircuitBreaker;
+    private final Retry smartStoreRetry;
 
     @Override
     public Marketplace getMarketplace() {
@@ -133,17 +138,26 @@ public class SmartStoreOrderClient implements MarketplaceOrderClient {
         HttpEntity<Void> request = new HttpEntity<>(headers);
 
         try {
-            ResponseEntity<String> response = restTemplate.exchange(
-                    uri,  // URI 객체 전달 → RestTemplate이 추가 인코딩하지 않음
-                    HttpMethod.GET, 
-                    request, 
-                    String.class);
+            // Circuit Breaker + Retry 적용: 장애 시 빠른 실패 + 일시적 오류 재시도
+            Supplier<ResponseEntity<String>> decoratedSupplier =
+                    Retry.decorateSupplier(smartStoreRetry,
+                            CircuitBreaker.decorateSupplier(smartStoreCircuitBreaker,
+                                    () -> restTemplate.exchange(
+                                            uri,
+                                            HttpMethod.GET,
+                                            request,
+                                            String.class)));
+
+            ResponseEntity<String> response = decoratedSupplier.get();
 
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 return parseOrdersResponse(response.getBody());
             }
             return new ArrayList<>();
-            
+
+        } catch (io.github.resilience4j.circuitbreaker.CallNotPermittedException e) {
+            log.error("[SmartStore] Circuit breaker OPEN - API calls blocked: {}", e.getMessage());
+            throw new RuntimeException("SmartStore API circuit breaker open", e);
         } catch (HttpClientErrorException e) {
             log.error("[SmartStore] API error: {} - {}", e.getStatusCode(), e.getResponseBodyAsString());
             throw new RuntimeException("SmartStore API error: " + e.getMessage(), e);
