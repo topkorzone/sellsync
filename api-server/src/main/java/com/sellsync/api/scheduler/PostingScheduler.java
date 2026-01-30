@@ -2,6 +2,8 @@ package com.sellsync.api.scheduler;
 
 import com.sellsync.api.domain.erp.service.ErpConfigService;
 import com.sellsync.api.domain.order.entity.Order;
+import com.sellsync.api.domain.order.enums.Marketplace;
+import com.sellsync.api.domain.order.enums.OrderStatus;
 import com.sellsync.api.domain.order.enums.SettlementCollectionStatus;
 import com.sellsync.api.domain.order.repository.OrderRepository;
 import com.sellsync.api.domain.posting.dto.PostingResponse;
@@ -169,12 +171,13 @@ public class PostingScheduler {
     }
 
     /**
-     * 정산 수집된 주문의 전표 자동 생성
-     * 
+     * 전표 생성 대상 주문의 전표 자동 생성
+     *
      * 스케줄: 매 10분마다 실행
-     * 
+     *
      * 로직:
-     * - settlement_status = COLLECTED 인 주문 조회 (최대 100건)
+     * - 전표 생성 대상 조회: orderStatus IN (SHIPPING, DELIVERED) + 미전표(≠POSTED)
+     *   + (정산완료 COLLECTED OR 쿠팡 마켓플레이스) → 최대 100건
      * - 각 주문에 대해 OrderSettlementPostingService.createPostingsForSettledOrder() 호출
      * - 성공/실패 카운트 로깅
      * - 개별 주문 실패 시에도 다음 주문 계속 처리
@@ -191,10 +194,14 @@ public class PostingScheduler {
             for (Tenant tenant : activeTenants) {
                 UUID tenantId = tenant.getTenantId();
                 try {
-                    // tenantId로 DB 레벨 필터링하여 COLLECTED 주문 조회 (최대 100건)
-                    List<Order> settledOrders = orderRepository.findByTenantIdAndSettlementStatusOrderByPaidAtAsc(
+                    // 전표 생성 대상 주문 조회 (SettlementScheduler와 동일한 조건)
+                    // 조건: SHIPPING/DELIVERED + 미전표(≠POSTED) + (COLLECTED OR 쿠팡)
+                    List<Order> settledOrders = orderRepository.findPostingTargetOrders(
                             tenantId,
+                            List.of(OrderStatus.SHIPPING, OrderStatus.DELIVERED),
+                            SettlementCollectionStatus.POSTED,
                             SettlementCollectionStatus.COLLECTED,
+                            Marketplace.COUPANG,
                             PageRequest.of(0, 100)
                     );
 
@@ -235,7 +242,7 @@ public class PostingScheduler {
                         }
                     }
 
-                    log.info("[스케줄러] 정산 전표 생성 완료 (tenant={}): 성공 {} 건, 실패 {} 건, 스킵 {} 건 (상품매핑 미완료)",
+                    log.info("[스케줄러] 정산 전표 생성 완료 (tenant={}): 성공 {} 건, 실패 {} 건, 스킵 {} 건",
                             tenantId, successCount, failureCount, skippedCount);
 
                 } catch (Exception e) {

@@ -224,11 +224,11 @@ POST {{baseUrl}}/shipment/pending
 
 
 
-### 쿠팡 카테고리 조회
-POST {{baseUrl}}/coupang-category-sync?storeId=89342e7f-3e9f-4fa1-bb5c-e087b96dccf3
+### 쿠팡 카테고리 싱크
+POST {{baseUrl}}/coupang-category-sync?storeId=08a76af9-0d7b-4427-9f53-5d32b2bfd8f1
 
 ### 쿠팡 카테고리 조회
-POST {{baseUrl}}/coupang-commission-update?storeId=89342e7f-3e9f-4fa1-bb5c-e087b96dccf3
+POST {{baseUrl}}/coupang-commission-update?storeId=08a76af9-0d7b-4427-9f53-5d32b2bfd8f1
 
 ### 쿠팡 커미션 업데이트
 POST {{baseUrl}}/coupang-commission-update

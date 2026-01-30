@@ -93,6 +93,7 @@ export interface Order {
   expectedSettlementAmount?: number;  // 정산예정금액
   mappingStatus?: 'MAPPED' | 'UNMAPPED' | 'PARTIAL';  // 매핑여부
   erpDocumentNo?: string;           // 전표번호
+  hasPosting?: boolean;             // 전표 존재 여부
   trackingNo?: string;              // 송장번호
   carrierName?: string;             // 택배사
   deliveryFeeAmount?: number;       // 배송비 (스마트스토어)

@@ -160,7 +160,7 @@ public class SchedulerTestController {
         
         LocalDateTime startTime = LocalDateTime.now();
         try {
-            settlementScheduler.collectDailySettlements();
+            settlementScheduler.doCollectDailySettlements();
             
             return ApiResponse.ok(ExecutionResult.builder()
                 .schedulerName("정산 수집")
@@ -506,7 +506,7 @@ public class SchedulerTestController {
         results.add(executeScheduler("주문 수집", () -> orderCollectionScheduler.collectOrdersScheduled()));
         
         // 2. 정산 수집
-        results.add(executeScheduler("정산 수집", () -> settlementScheduler.collectDailySettlements()));
+        results.add(executeScheduler("정산 수집", () -> settlementScheduler.doCollectDailySettlements()));
         
         // 3. 정산 전표 생성
         results.add(executeScheduler("정산 전표 생성", () -> settlementScheduler.processValidatedBatchesWithoutPostings()));

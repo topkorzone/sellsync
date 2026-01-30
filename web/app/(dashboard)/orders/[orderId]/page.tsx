@@ -359,53 +359,46 @@ console.log('allOrdersForCommission :::', allOrdersForCommission);
               </div>
             )}
             
-            {/* 정산 수집 전: 주문 수수료 표시 (0원이어도 표시) */}
-            {order.settlementStatus === 'NOT_COLLECTED' && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground flex items-center gap-1">
-                  수수료 (주문시점)
-                  {totalCommissionAmount === 0 && (
-                    <span className="text-xs text-yellow-600">(정산 수집 후 확정)</span>
-                  )}
-                </span>
-                <span className="text-red-600">
-                  {totalCommissionAmount > 0 ? `-${formatCurrency(totalCommissionAmount)}` : '미정'}
-                </span>
-              </div>
-            )}
-            
-            {/* 정산 수집 후: 상품 수수료와 배송비 수수료 분리 표시 (0원이어도 표시) */}
-            {(order.settlementStatus === 'COLLECTED' || order.settlementStatus === 'POSTED') && (
+            {/* 수수료 표시: 데이터가 있으면 항상 상품/배송비 분리 표시 */}
+            {(totalProductCommissionAmount > 0 || totalShippingCommissionAmount > 0) ? (
               <>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">수수료 (상품)</span>
+                  <span className="text-muted-foreground flex items-center gap-1">
+                    수수료 (상품)
+                    {order.settlementStatus === 'NOT_COLLECTED' && (
+                      <span className="text-xs text-yellow-600">(예상)</span>
+                    )}
+                  </span>
                   <span className="text-red-600">
                     {totalProductCommissionAmount > 0 ? `-${formatCurrency(totalProductCommissionAmount)}` : '₩0'}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">수수료 (배송비)</span>
+                  <span className="text-muted-foreground flex items-center gap-1">
+                    수수료 (배송비)
+                    {order.settlementStatus === 'NOT_COLLECTED' && (
+                      <span className="text-xs text-yellow-600">(예상)</span>
+                    )}
+                  </span>
                   <span className="text-red-600">
                     {totalShippingCommissionAmount > 0 ? `-${formatCurrency(totalShippingCommissionAmount)}` : '₩0'}
                   </span>
                 </div>
               </>
+            ) : (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground flex items-center gap-1">
+                  수수료
+                  <span className="text-xs text-yellow-600">(정산 수집 후 확정)</span>
+                </span>
+                <span className="text-red-600">미정</span>
+              </div>
             )}
             
             <div className="flex justify-between font-semibold border-t pt-3 text-lg">
               <span>정산 예정금액</span>
               <span>
-                {formatCurrency(
-                  (() => {
-                    // 정산 수집 후: 실제 정산 수수료로 계산
-                    if (order.settlementStatus === 'COLLECTED' || order.settlementStatus === 'POSTED') {
-                      return totalProductAmount + totalShippingFee - totalDiscountAmount - totalProductCommissionAmount - totalShippingCommissionAmount;
-                    }
-                    
-                    // 정산 수집 전: 주문 시점 수수료로 계산
-                    return totalProductAmount + totalShippingFee - totalDiscountAmount - totalCommissionAmount;
-                  })()
-                )}
+                {formatCurrency(totalProductAmount + totalShippingFee - totalDiscountAmount - totalCommissionAmount)}
               </span>
             </div>
           </CardContent>

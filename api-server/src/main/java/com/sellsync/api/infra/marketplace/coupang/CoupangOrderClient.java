@@ -246,7 +246,7 @@ public class CoupangOrderClient implements MarketplaceOrderClient {
             String marketplaceItemId = String.valueOf(vendorItemId);
 
             // 가격 정보 추출
-            long orderPrice = itemNode.path("orderPrice").asLong(0);
+            long orderPrice = extractPrice(itemNode.path("orderPrice"));
             int quantity = itemNode.path("shippingCount").asInt(1);
 
             // 아이템 DTO 생성
@@ -286,8 +286,8 @@ public class CoupangOrderClient implements MarketplaceOrderClient {
                     // 금액 (개별 아이템 금액)
                     .totalPaidAmount(orderPrice)
                     .totalProductAmount(orderPrice)
-                    // 배송비 (쿠팡은 price 객체 형태로 제공)
-                    .shippingFee(orderNode.path("shippingPrice").asLong(0))
+                    // 배송비
+                    .shippingFee(extractPrice(orderNode.path("shippingPrice")))
                     .additionalShippingFee(extractPrice(orderNode.path("remotePrice")))
                     // 기타
                     .deliveryRequest(orderNode.path("parcelPrintMessage").asText(null))
@@ -376,14 +376,21 @@ public class CoupangOrderClient implements MarketplaceOrderClient {
 
     /**
      * 날짜 파싱
+     * 쿠팡 API는 타임존 포함 ISO-8601 형식 (예: 2026-01-29T16:25:27+09:00)
      */
     private LocalDateTime parseDateTime(String dateStr) {
         if (dateStr == null || dateStr.isEmpty()) return LocalDateTime.now();
         try {
-            // 쿠팡 날짜 포맷: yyyy-MM-dd'T'HH:mm:ss
-            return LocalDateTime.parse(dateStr, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            // 타임존 포함 형식 우선 파싱 (2026-01-29T16:25:27+09:00)
+            return java.time.OffsetDateTime.parse(dateStr, DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+                    .toLocalDateTime();
         } catch (Exception e) {
-            return LocalDateTime.now();
+            try {
+                // 타임존 없는 형식 폴백 (2026-01-29T16:25:27)
+                return LocalDateTime.parse(dateStr, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            } catch (Exception e2) {
+                return LocalDateTime.now();
+            }
         }
     }
 
@@ -397,19 +404,21 @@ public class CoupangOrderClient implements MarketplaceOrderClient {
     }
 
     /**
-     * 쿠팡 Price 객체에서 금액 추출
-     * 
-     * 쿠팡 API는 price를 다음 형태로 제공:
-     * {
-     *   "currencyCode": "KRW",
-     *   "units": 23000,
-     *   "nanos": 0
-     * }
+     * 쿠팡 Price 필드에서 금액 추출
+     *
+     * 쿠팡 API는 금액을 두 가지 형태로 제공할 수 있음:
+     * 1. Price 객체: {"currencyCode": "KRW", "units": 23000, "nanos": 0}
+     * 2. 단순 숫자: 23000
      */
     private long extractPrice(JsonNode priceNode) {
         if (priceNode == null || priceNode.isMissingNode()) {
             return 0L;
         }
-        return priceNode.path("units").asLong(0);
+        // Price 객체 형태 (units 필드에서 추출)
+        if (priceNode.isObject()) {
+            return priceNode.path("units").asLong(0);
+        }
+        // 단순 숫자 형태
+        return priceNode.asLong(0);
     }
 }

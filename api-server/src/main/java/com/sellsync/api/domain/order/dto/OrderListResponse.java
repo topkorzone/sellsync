@@ -59,6 +59,9 @@ public class OrderListResponse {
     
     // ERP 전표번호
     private String erpDocumentNo;
+
+    // 전표 존재 여부 (READY 등 ERP 전송 전 상태 포함)
+    private boolean hasPosting;
     
     // 송장번호
     private String trackingNo;

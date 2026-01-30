@@ -227,13 +227,13 @@ public class SmartStoreOrderClient implements MarketplaceOrderClient {
                 .buyerName(orderNode.path("ordererName").asText(""))
                 .buyerPhone(orderNode.path("ordererTel").asText(null))
                 .buyerId(orderNode.path("ordererId").asText(null))
-                // 수취인
-                .receiverName(deliveryNode.path("receiverName").asText(""))
-                .receiverPhone1(deliveryNode.path("receiverTel1").asText(null))
-                .receiverPhone2(deliveryNode.path("receiverTel2").asText(null))
-                .receiverZipCode(deliveryNode.path("zipCode").asText(null))
-                .receiverAddress(buildDeliveryAddress(deliveryNode))
-                .safeNumberType(deliveryNode.path("isRoadNameAddress").asBoolean() ? "ROAD" : "JIBUN")
+                // 수취인 (shippingAddress 노드에서 추출)
+                .receiverName(productOrderNode.path("shippingAddress").path("name").asText(""))
+                .receiverPhone1(productOrderNode.path("shippingAddress").path("tel1").asText(null))
+                .receiverPhone2(productOrderNode.path("shippingAddress").path("tel2").asText(null))
+                .receiverZipCode(productOrderNode.path("shippingAddress").path("zipCode").asText(null))
+                .receiverAddress(buildShippingAddress(productOrderNode.path("shippingAddress")))
+                .safeNumberType(productOrderNode.path("shippingAddress").path("isRoadNameAddress").asBoolean() ? "ROAD" : "JIBUN")
                 // 금액
                 .totalProductAmount(productOrderNode.path("totalProductAmount").asLong(0))
                 .totalDiscountAmount(orderNode.path("orderDiscountAmount").asLong(0))
@@ -403,7 +403,7 @@ public class SmartStoreOrderClient implements MarketplaceOrderClient {
             case "PAYED", "PAYMENT_WAITING" -> "NEW";
             case "PRODUCT_PREPARE", "DELIVERING_HOLD" -> "CONFIRMED";
             case "DELIVERING" -> "SHIPPING";
-            case "DELIVERED" -> "DELIVERED";
+            case "DELIVERED", "PURCHASE_DECIDED" -> "DELIVERED";
             case "CANCELED", "CANCEL_DONE" -> "CANCELED";
             case "RETURN_REQUEST", "RETURN_DONE" -> "RETURNED";
             case "EXCHANGE_REQUEST", "EXCHANGE_DONE" -> "EXCHANGED";
@@ -429,11 +429,11 @@ public class SmartStoreOrderClient implements MarketplaceOrderClient {
     }
 
     /**
-     * 주소 빌드 (delivery 노드용)
+     * 주소 빌드 (shippingAddress 노드용)
      */
-    private String buildDeliveryAddress(JsonNode delivery) {
-        String baseAddr = delivery.path("baseAddress").asText("");
-        String detailAddr = delivery.path("detailedAddress").asText("");
+    private String buildShippingAddress(JsonNode shippingAddress) {
+        String baseAddr = shippingAddress.path("baseAddress").asText("");
+        String detailAddr = shippingAddress.path("detailedAddress").asText("");
         return (baseAddr + " " + detailAddr).trim();
     }
 }

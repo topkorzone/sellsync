@@ -28,6 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -137,13 +138,19 @@ public class OrderCollectionService {
                 .stream()
                 .collect(Collectors.toMap(Order::getMarketplaceOrderId, o -> o));
         
-        log.debug("[OrderCollection] Found {} existing orders in batch of {}", 
+        log.debug("[OrderCollection] Found {} existing orders in batch of {}",
                 existingOrders.size(), batch.size());
+
+        // 1.5. [쿠팡] 수수료 정보 사전 조회 (수수료 금액 계산용)
+        Map<String, CoupangProductInfo> commissionInfoMap = new HashMap<>();
+        if (marketplace == Marketplace.COUPANG && credentialsJson != null) {
+            commissionInfoMap = fetchCoupangCommissionInfoFromDtos(batch, credentialsJson);
+        }
 
         // 2. 주문 엔티티 빌드 (신규/업데이트 구분)
         List<Order> ordersToSave = new ArrayList<>();
         List<Order> processedOrders = new ArrayList<>();
-        
+
         for (MarketplaceOrderDto dto : batch) {
             try {
                 Order order = existingOrders.get(dto.getMarketplaceOrderId());
@@ -163,7 +170,12 @@ public class OrderCollectionService {
                 
                 // 필드 매핑 (신규 여부 전달)
                 mapOrderFields(order, dto, isNew);
-                
+
+                // [쿠팡] 수수료 금액 계산 (수수료율 + 부가세 10%)
+                if (marketplace == Marketplace.COUPANG && !commissionInfoMap.isEmpty()) {
+                    calculateCoupangCommission(order, dto, commissionInfoMap);
+                }
+
                 ordersToSave.add(order);
                 processedOrders.add(order);
                 
@@ -770,6 +782,132 @@ public class OrderCollectionService {
                     item.getMarketplaceProductId(), item.getMarketplaceSku(), e.getMessage());
             }
         }
+    }
+
+    /**
+     * 쿠팡 주문 수수료 금액 계산
+     *
+     * 수수료 공식:
+     * - 상품 수수료: lineAmount × (수수료율% / 100) × 1.1 (부가세 10%)
+     * - 배송 수수료: shippingFee × 3% × 1.1 (부가세 10%) = shippingFee × 3.3%
+     * - 정산 예정 금액: 결제금액 + 배송비 - 상품수수료 - 배송수수료
+     *
+     * @param order 주문 엔티티 (필드 매핑 완료 상태)
+     * @param dto 마켓플레이스 주문 DTO (sellerProductId 추출용)
+     * @param commissionInfoMap sellerProductId → CoupangProductInfo 맵
+     */
+    private void calculateCoupangCommission(Order order, MarketplaceOrderDto dto,
+                                            Map<String, CoupangProductInfo> commissionInfoMap) {
+        // 정산 완료된 주문은 수수료 재계산하지 않음
+        boolean isSettlementCompleted = order.getSettlementStatus() != null &&
+                (order.getSettlementStatus() == SettlementCollectionStatus.COLLECTED ||
+                 order.getSettlementStatus() == SettlementCollectionStatus.POSTED);
+        if (isSettlementCompleted) {
+            return;
+        }
+
+        // DTO에서 marketplaceItemId → sellerProductId 맵 구성
+        Map<String, String> itemSellerProductMap = new HashMap<>();
+        if (dto.getItems() != null) {
+            for (MarketplaceOrderItemDto itemDto : dto.getItems()) {
+                if (itemDto.getSellerProductId() != null && itemDto.getMarketplaceItemId() != null) {
+                    itemSellerProductMap.put(itemDto.getMarketplaceItemId(), itemDto.getSellerProductId());
+                }
+            }
+        }
+
+        // 아이템별 수수료 계산
+        long totalItemCommission = 0;
+        for (OrderItem item : order.getItems()) {
+            String sellerProductId = itemSellerProductMap.get(item.getMarketplaceItemId());
+            if (sellerProductId == null) continue;
+
+            CoupangProductInfo info = commissionInfoMap.get(sellerProductId);
+            if (info == null) continue;
+
+            // vendorItemId(=marketplaceSku) 기준 개별 수수료율 → 상품 수수료율 폴백
+            BigDecimal rate = resolveItemCommissionRate(info, item.getMarketplaceSku());
+            if (rate == null || rate.compareTo(BigDecimal.ZERO) <= 0) continue;
+
+            // 수수료 금액 = lineAmount × (rate / 100) × 1.1 (부가세 포함)
+            long commissionAmount = Math.round(item.getLineAmount() * rate.doubleValue() / 100.0 * 1.1);
+            item.setCommissionAmount(commissionAmount);
+            totalItemCommission += commissionAmount;
+
+            log.debug("[쿠팡 수수료 계산] itemId={}, lineAmount={}, rate={}%, commission={}",
+                    item.getMarketplaceItemId(), item.getLineAmount(), rate, commissionAmount);
+        }
+
+        // 주문 수수료 = 아이템 수수료 합계
+        order.setCommissionAmount(totalItemCommission);
+
+        // 배송 수수료 = 배송비 × 3% × 1.1 (부가세)
+        long shippingFee = order.getShippingFee() != null ? order.getShippingFee() : 0;
+        long shippingCommission = Math.round(shippingFee * 0.03 * 1.1);
+        order.setShippingCommissionAmount(shippingCommission);
+
+        // 정산 예정 금액 = 결제금액 + 배송비 - 상품수수료 - 배송수수료
+        long totalPaid = order.getTotalPaidAmount() != null ? order.getTotalPaidAmount() : 0;
+        order.setExpectedSettlementAmount(totalPaid + shippingFee - totalItemCommission - shippingCommission);
+
+        log.info("[쿠팡 수수료 계산] orderId={}, itemCommission={}, shippingCommission={}, expectedSettlement={}",
+                order.getMarketplaceOrderId(), totalItemCommission, shippingCommission,
+                order.getExpectedSettlementAmount());
+    }
+
+    /**
+     * 쿠팡 아이템 수수료율 조회
+     * vendorItemId별 개별 수수료율 우선, 없으면 상품 수수료율 사용
+     */
+    private BigDecimal resolveItemCommissionRate(CoupangProductInfo info, String vendorItemId) {
+        // 1. vendorItemId별 개별 수수료율 확인
+        if (info.getItemCommissions() != null && vendorItemId != null) {
+            BigDecimal itemRate = info.getItemCommissions().get(vendorItemId);
+            if (itemRate != null && itemRate.compareTo(BigDecimal.ZERO) > 0) {
+                return itemRate;
+            }
+        }
+        // 2. 상품 수수료율 폴백
+        return info.getSaleAgentCommission();
+    }
+
+    /**
+     * 쿠팡 수수료 정보를 DTO에서 sellerProductId 추출하여 사전 조회
+     *
+     * @param dtos 마켓플레이스 주문 DTO 목록
+     * @param credentialsJson 쿠팡 API 인증 JSON
+     * @return sellerProductId → CoupangProductInfo 맵
+     */
+    private Map<String, CoupangProductInfo> fetchCoupangCommissionInfoFromDtos(
+            List<MarketplaceOrderDto> dtos, String credentialsJson) {
+        Set<String> sellerProductIds = new HashSet<>();
+        for (MarketplaceOrderDto dto : dtos) {
+            if (dto.getItems() == null) continue;
+            for (MarketplaceOrderItemDto item : dto.getItems()) {
+                if (item.getSellerProductId() != null) {
+                    sellerProductIds.add(item.getSellerProductId());
+                }
+            }
+        }
+
+        if (sellerProductIds.isEmpty()) {
+            return new HashMap<>();
+        }
+
+        log.info("[쿠팡 수수료 조회] 수수료 계산용 sellerProductId {}개 조회", sellerProductIds.size());
+
+        Map<String, CoupangProductInfo> result = new HashMap<>();
+        for (String spid : sellerProductIds) {
+            try {
+                coupangCommissionService.getProductInfo(credentialsJson, spid)
+                        .ifPresent(info -> result.put(spid, info));
+            } catch (Exception e) {
+                log.warn("[쿠팡 수수료 조회] 실패 - sellerProductId={}, error={}", spid, e.getMessage());
+            }
+        }
+
+        log.info("[쿠팡 수수료 조회] 수수료 계산용 완료: {}개 중 {}개 성공", sellerProductIds.size(), result.size());
+        return result;
     }
 
     private Long nullToZero(Long value) {

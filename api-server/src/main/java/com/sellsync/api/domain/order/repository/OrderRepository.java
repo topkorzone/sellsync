@@ -280,6 +280,26 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
             Pageable pageable
     );
 
+    // 4-2. 전표 생성 대상 주문 조회 (items JOIN FETCH 포함)
+    // 조건: 주문상태 IN (SHIPPING, DELIVERED) + 미전표(≠POSTED)
+    //       + (정산완료 COLLECTED OR 쿠팡 마켓플레이스)
+    @Query("SELECT DISTINCT o FROM Order o " +
+           "LEFT JOIN FETCH o.items " +
+           "WHERE o.tenantId = :tenantId " +
+           "AND o.orderStatus IN :orderStatuses " +
+           "AND o.settlementStatus <> :excludeStatus " +
+           "AND (o.settlementStatus = :collectedStatus " +
+           "     OR o.marketplace = :coupangMarketplace) " +
+           "ORDER BY o.paidAt ASC")
+    List<Order> findPostingTargetOrders(
+            @Param("tenantId") UUID tenantId,
+            @Param("orderStatuses") List<OrderStatus> orderStatuses,
+            @Param("excludeStatus") SettlementCollectionStatus excludeStatus,
+            @Param("collectedStatus") SettlementCollectionStatus collectedStatus,
+            @Param("coupangMarketplace") Marketplace coupangMarketplace,
+            Pageable pageable
+    );
+
     // 5. 마켓플레이스 주문 ID로 주문 벌크 조회 (정산 매칭용)
     @Query("SELECT o FROM Order o WHERE o.tenantId = :tenantId " +
            "AND o.marketplaceOrderId IN :marketplaceOrderIds")

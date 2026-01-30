@@ -732,7 +732,7 @@ export default function OrdersPage() {
                         {isFirstItem && (
                           <TableCell rowSpan={rowSpan} className="text-center align-middle py-2.5">
                             <PostingStatus 
-                              isCompleted={firstOrder.settlementStatus === 'POSTED' || !!firstOrder.erpDocumentNo} 
+                              isCompleted={firstOrder.hasPosting || firstOrder.settlementStatus === 'POSTED' || !!firstOrder.erpDocumentNo}
                             />
                           </TableCell>
                         )}

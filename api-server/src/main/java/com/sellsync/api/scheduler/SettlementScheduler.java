@@ -6,6 +6,7 @@ import com.sellsync.api.domain.mapping.service.ProductMappingService;
 import com.sellsync.api.domain.order.entity.Order;
 import com.sellsync.api.domain.order.entity.OrderItem;
 import com.sellsync.api.domain.order.enums.Marketplace;
+import com.sellsync.api.domain.order.enums.OrderStatus;
 import com.sellsync.api.domain.order.enums.SettlementCollectionStatus;
 import com.sellsync.api.domain.order.repository.OrderRepository;
 import com.sellsync.api.domain.posting.service.OrderSettlementPostingService;
@@ -79,6 +80,15 @@ public class SettlementScheduler {
 //    @Scheduled(cron = "0 */10 * * * *") // 10분마다 (테스트용)
     @SchedulerLock(name = "collectDailySettlements", lockAtLeastFor = "PT5M", lockAtMostFor = "PT2H")
     public void collectDailySettlements() {
+        doCollectDailySettlements();
+    }
+
+    /**
+     * 정산 수집 비즈니스 로직 (ShedLock 우회 가능)
+     *
+     * 테스트 컨트롤러에서 직접 호출 시 ShedLock 간섭 없이 실행됩니다.
+     */
+    public void doCollectDailySettlements() {
         log.info("========================================");
         log.info("[스케줄러] 일별 정산 수집 및 자동 처리 시작");
         log.info("========================================");
@@ -307,21 +317,23 @@ public class SettlementScheduler {
                 log.info("[스케줄러] 배치 {} 시작 (페이지: {})", totalBatchCount, currentPage);
                 log.info("========================================");
                 
-                // COLLECTED 상태 주문 조회 (items JOIN FETCH, 최대 50건)
-                // 성능 최적화: tenantId로 DB 레벨 필터링 (Java 필터링 제거)
-                log.info("[스케줄러] COLLECTED 상태 주문 조회 중... (페이지: {}, 최대 {} 건)", currentPage, MAX_ORDERS_PER_POSTING);
+                // 전표 생성 대상 주문 조회 (items JOIN FETCH, 최대 50건)
+                // 조건: SHIPPING/DELIVERED + 미전표(≠POSTED) + (COLLECTED OR 쿠팡)
+                log.info("[스케줄러] 전표 생성 대상 주문 조회 중... (페이지: {}, 최대 {} 건)", currentPage, MAX_ORDERS_PER_POSTING);
 
-                List<Order> tenantOrders = orderRepository
-                        .findByTenantIdAndSettlementStatusOrderByPaidAtAsc(
-                            tenantId,
-                            SettlementCollectionStatus.COLLECTED,
-                            PageRequest.of(currentPage, MAX_ORDERS_PER_POSTING)
-                        );
-                
+                List<Order> tenantOrders = orderRepository.findPostingTargetOrders(
+                        tenantId,
+                        List.of(OrderStatus.SHIPPING, OrderStatus.DELIVERED),
+                        SettlementCollectionStatus.POSTED,
+                        SettlementCollectionStatus.COLLECTED,
+                        Marketplace.COUPANG,
+                        PageRequest.of(currentPage, MAX_ORDERS_PER_POSTING)
+                );
+
                 log.info("[스케줄러] 전표 생성 대상 주문: {} 건", tenantOrders.size());
-                
+
                 if (tenantOrders.isEmpty()) {
-                    log.info("[스케줄러] ℹ️  더 이상 처리할 COLLECTED 주문 없음");
+                    log.info("[스케줄러] ℹ️  더 이상 처리할 전표 생성 대상 주문 없음");
                     break; // 반복 종료
                 }
                 

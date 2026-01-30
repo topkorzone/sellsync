@@ -6,6 +6,8 @@ import com.sellsync.api.domain.erp.repository.ErpConfigRepository;
 import com.sellsync.api.domain.erp.repository.ErpItemRepository;
 import com.sellsync.api.domain.order.entity.Order;
 import com.sellsync.api.domain.order.entity.OrderItem;
+import com.sellsync.api.domain.order.enums.Marketplace;
+import com.sellsync.api.domain.order.enums.OrderStatus;
 import com.sellsync.api.domain.order.enums.SettlementCollectionStatus;
 import com.sellsync.api.domain.order.exception.OrderNotFoundException;
 import com.sellsync.api.domain.order.repository.OrderRepository;
@@ -73,26 +75,51 @@ public class OrderSettlementPostingService {
         log.info("[정산 전표 생성 시작] bundleOrderId={}, erpCode={}", bundleOrderId, erpCode);
 
         // 1. 주문 조회 (bundleOrderId로 조회 - 여러 개 주문이 나올 수 있음)
-        List<Order> orders = orderRepository.findByBundleOrderId(bundleOrderId);
-        
-        if (orders.isEmpty()) {
+        List<Order> allOrders = orderRepository.findByBundleOrderId(bundleOrderId);
+
+        if (allOrders.isEmpty()) {
             throw new OrderNotFoundException(UUID.randomUUID()); // bundleOrderId는 String이라 임시로 UUID 생성
         }
-        
-        log.info("[번들 주문 조회 완료] bundleOrderId={}, 주문 개수={}", bundleOrderId, orders.size());
 
-        // 2. settlement_status = COLLECTED 확인 (모든 주문이 COLLECTED여야 함)
-        List<Order> notCollectedOrders = orders.stream()
-                .filter(o -> o.getSettlementStatus() != SettlementCollectionStatus.COLLECTED)
+        // 전표 생성 대상: SHIPPING 또는 DELIVERED 상태 주문만 포함
+        // NEW, CONFIRMED 등 아직 출고 전 상태의 주문은 전표 생성에서 제외
+        List<Order> orders = allOrders.stream()
+                .filter(o -> o.getOrderStatus() == OrderStatus.SHIPPING || o.getOrderStatus() == OrderStatus.DELIVERED)
                 .toList();
-        
-        if (!notCollectedOrders.isEmpty()) {
-            String errorMsg = String.format(
-                "일부 주문의 정산 상태가 COLLECTED가 아닙니다. bundleOrderId=%s, notCollected count=%d",
-                bundleOrderId, notCollectedOrders.size()
-            );
-            log.error(errorMsg);
-            throw new IllegalStateException(errorMsg);
+
+        if (orders.isEmpty()) {
+            log.warn("[전표 생성 스킵 - 출고 전 주문만 존재] bundleOrderId={}, 전체 주문={}건, 상태별: {}",
+                bundleOrderId, allOrders.size(),
+                allOrders.stream().collect(java.util.stream.Collectors.groupingBy(
+                    o -> o.getOrderStatus().name(), java.util.stream.Collectors.counting())));
+            throw new IllegalStateException(
+                String.format("전표 생성 대상 주문이 없습니다 (SHIPPING/DELIVERED 상태만 전표 생성 가능). bundleOrderId=%s", bundleOrderId));
+        }
+
+        log.info("[번들 주문 조회 완료] bundleOrderId={}, 전체={}건, 전표대상(SHIPPING/DELIVERED)={}건",
+            bundleOrderId, allOrders.size(), orders.size());
+
+        // 2. settlement_status 확인 (쿠팡은 정산 미수집도 허용)
+        Order firstOrderForCheck = orders.get(0);
+        boolean isCoupang = firstOrderForCheck.getMarketplace() == Marketplace.COUPANG;
+
+        if (!isCoupang) {
+            // 쿠팡 외 마켓플레이스: 모든 주문이 COLLECTED여야 함
+            List<Order> notCollectedOrders = orders.stream()
+                    .filter(o -> o.getSettlementStatus() != SettlementCollectionStatus.COLLECTED)
+                    .toList();
+
+            if (!notCollectedOrders.isEmpty()) {
+                String errorMsg = String.format(
+                    "일부 주문의 정산 상태가 COLLECTED가 아닙니다. bundleOrderId=%s, notCollected count=%d",
+                    bundleOrderId, notCollectedOrders.size()
+                );
+                log.error(errorMsg);
+                throw new IllegalStateException(errorMsg);
+            }
+        } else {
+            log.info("[쿠팡 주문 - 정산 미수집 허용] bundleOrderId={}, settlementStatus={}",
+                bundleOrderId, firstOrderForCheck.getSettlementStatus());
         }
 
         // 3. 상품 매핑 완료 확인 (모든 주문의 모든 상품이 매핑되어야 함)
@@ -142,13 +169,25 @@ public class OrderSettlementPostingService {
         PostingResponse posting = postingService.createOrGet(request);
         log.info("[통합 전표 생성] postingId={}", posting.getPostingId());
 
-        // 9. 정산 전표 생성 완료 마킹 (모든 주문에 대해)
+        // 9. 정산 전표 생성 완료 마킹
+        // 실제 정산 데이터가 수집된(COLLECTED) 주문만 POSTED로 변경
+        // 정산 미수집(NOT_COLLECTED) 상태에서 예상 수수료로 전표를 먼저 생성한 경우,
+        // 상태를 유지하여 차후 실제 정산 데이터 수집 시 금액 비교가 가능하도록 함
+        int postedCount = 0;
+        int skippedCount = 0;
         for (Order order : orders) {
-            order.markSettlementPosted();
+            if (order.getSettlementStatus() == SettlementCollectionStatus.COLLECTED) {
+                order.markSettlementPosted();
+                postedCount++;
+            } else {
+                skippedCount++;
+                log.info("[정산 미수집 주문 - 상태 유지] orderId={}, settlementStatus={}, expectedSettlementAmount={}",
+                    order.getMarketplaceOrderId(), order.getSettlementStatus(), order.getExpectedSettlementAmount());
+            }
         }
         orderRepository.saveAll(orders);
-        log.info("[정산 전표 생성 완료 마킹] bundleOrderId={}, 주문 개수={}", 
-            bundleOrderId, orders.size());
+        log.info("[정산 전표 생성 완료 마킹] bundleOrderId={}, POSTED={}건, 상태유지={}건",
+            bundleOrderId, postedCount, skippedCount);
 
         log.info("[정산 전표 생성 완료] bundleOrderId={}, postingId={}", bundleOrderId, posting.getPostingId());
 
@@ -198,8 +237,15 @@ public class OrderSettlementPostingService {
         // ========== 2. 각 주문별 상품수수료 전표 ==========
         for (Order order : orders) {
             Long productCommission = getProductCommissionFromSettlement(order);
-            
-            if (productCommission != null && productCommission > 0 
+
+            // 폴백: 정산 데이터 없으면 Order 엔티티의 예상 수수료 사용 (쿠팡)
+            if (productCommission == null && order.getCommissionAmount() != null && order.getCommissionAmount() > 0) {
+                productCommission = order.getCommissionAmount();
+                log.info("[상품수수료 - 예상 수수료 사용] orderId={}, commission={}",
+                    order.getOrderId(), productCommission);
+            }
+
+            if (productCommission != null && productCommission > 0
                     && store.getCommissionItemCode() != null 
                     && !store.getCommissionItemCode().isEmpty()) {
                 

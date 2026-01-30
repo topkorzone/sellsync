@@ -293,9 +293,8 @@ public class OrderService {
             Long productSettlementAmount = calculateProductSettlementAmount(order);
             response.setExpectedSettlementAmount(productSettlementAmount);
             
-            // 전표 정보 조회 (POSTED 상태인 경우 erpDocumentNo 설정)
-            String erpDocumentNo = getErpDocumentNo(order);
-            response.setErpDocumentNo(erpDocumentNo);
+            // 전표 정보 조회 (전표 존재 여부 + ERP 전표번호)
+            setPostingInfo(order, response);
             
             return response;
         });
@@ -398,32 +397,30 @@ public class OrderService {
     }
 
     /**
-     * 전표 번호 조회
-     * 
-     * 주문에 대해 POSTED 상태인 전표가 있으면 erpDocumentNo 반환
-     * 
-     * @param order 주문 엔티티
-     * @return ERP 전표 번호 (없으면 null)
+     * 전표 정보 설정 (전표 존재 여부 + ERP 전표번호)
+     *
+     * - hasPosting: 전표가 하나라도 존재하면 true (READY 등 ERP 전송 전 상태 포함)
+     * - erpDocumentNo: POSTED 상태인 전표의 ERP 전표번호
      */
-    private String getErpDocumentNo(Order order) {
+    private void setPostingInfo(Order order, OrderListResponse response) {
         try {
-            List<com.sellsync.api.domain.posting.entity.Posting> postings = 
+            List<com.sellsync.api.domain.posting.entity.Posting> postings =
                     postingRepository.findByTenantIdAndOrderId(order.getTenantId(), order.getOrderId());
-            
-            if (postings.isEmpty()) {
-                return null;
+
+            response.setHasPosting(!postings.isEmpty());
+
+            if (!postings.isEmpty()) {
+                // POSTED 상태인 전표 중 첫 번째 전표의 erpDocumentNo 반환
+                String erpDocumentNo = postings.stream()
+                        .filter(posting -> posting.getPostingStatus() == com.sellsync.api.domain.posting.enums.PostingStatus.POSTED)
+                        .map(com.sellsync.api.domain.posting.entity.Posting::getErpDocumentNo)
+                        .filter(java.util.Objects::nonNull)
+                        .findFirst()
+                        .orElse(null);
+                response.setErpDocumentNo(erpDocumentNo);
             }
-            
-            // POSTED 상태인 전표 중 첫 번째 전표의 erpDocumentNo 반환
-            return postings.stream()
-                    .filter(posting -> posting.getPostingStatus() == com.sellsync.api.domain.posting.enums.PostingStatus.POSTED)
-                    .map(com.sellsync.api.domain.posting.entity.Posting::getErpDocumentNo)
-                    .filter(java.util.Objects::nonNull)
-                    .findFirst()
-                    .orElse(null);
         } catch (Exception e) {
-            log.error("[전표 번호 조회 실패] orderId={}", order.getOrderId(), e);
-            return null;
+            log.error("[전표 정보 조회 실패] orderId={}", order.getOrderId(), e);
         }
     }
 
