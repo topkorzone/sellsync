@@ -40,6 +40,14 @@ public interface PostingRepository extends JpaRepository<Posting, UUID> {
     List<Posting> findByTenantIdAndOrderId(UUID tenantId, UUID orderId);
 
     /**
+     * 배치 전표 조회 — 주문 목록 성능 개선용
+     *
+     * 주문 ID 목록으로 전표를 한 번에 조회
+     * 성능: 주문당 개별 쿼리(N) → 1번 IN 쿼리
+     */
+    List<Posting> findByTenantIdAndOrderIdIn(UUID tenantId, List<UUID> orderIds);
+
+    /**
      * 테넌트 + 상태별 전표 목록 조회 (페이징)
      */
     Page<Posting> findByTenantIdAndPostingStatusOrderByUpdatedAtDesc(

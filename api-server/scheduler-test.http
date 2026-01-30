@@ -17,8 +17,8 @@
 ### - 로그인 API: POST http://localhost:8080/api/auth/login
 ### ============================================
 
-@baseUrl = http://localhost:8080/api/test/scheduler
-#@baseUrl = https://api.sell-sync.biz/api/test/scheduler
+#@baseUrl = http://localhost:8080/api/test/scheduler
+@baseUrl = https://api.sell-sync.biz/api/test/scheduler
 
 # JWT 토큰 (다른 인증 필요 API 테스트 시 사용)
 # 로그인 후 받은 accessToken을 여기에 입력하세요

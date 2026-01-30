@@ -25,8 +25,9 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 주문(Order) 서비스
@@ -274,30 +275,156 @@ public class OrderService {
             tenantId, status, marketplace, storeId, settlementStatus, search, fromDate, toDate
         );
 
-        // items를 fetch join으로 조회
-        Page<Order> orders = orderRepository.findAll(spec, pageable);
+        // 1단계: 페이지네이션으로 주문 조회 (items 미포함)
+        Page<Order> orderPage = orderRepository.findAll(spec, pageable);
+        List<UUID> orderIds = orderPage.getContent().stream()
+                .map(Order::getOrderId)
+                .toList();
 
-        log.debug("[주문 목록 조회] tenantId={}, status={}, marketplace={}, storeId={}, settlementStatus={}, search={}, from={}, to={}, page={}, size={}, total={}", 
+        log.debug("[주문 목록 조회] tenantId={}, status={}, marketplace={}, storeId={}, settlementStatus={}, search={}, from={}, to={}, page={}, size={}, total={}",
                 tenantId, status, marketplace, storeId, settlementStatus, search, from, to,
-                pageable.getPageNumber(), pageable.getPageSize(), orders.getTotalElements());
+                pageable.getPageNumber(), pageable.getPageSize(), orderPage.getTotalElements());
 
-        // OrderListResponse로 변환하고 매핑 상태, 정산 금액, 전표 정보 계산
-        return orders.map(order -> {
-            OrderListResponse response = OrderListResponse.from(order);
-            
-            // 매핑 상태 계산
-            String mappingStatus = calculateMappingStatus(order);
-            response.setMappingStatus(mappingStatus);
-            
-            // 상품 정산 예정 금액 계산 (SALES 타입만)
-            Long productSettlementAmount = calculateProductSettlementAmount(order);
-            response.setExpectedSettlementAmount(productSettlementAmount);
-            
-            // 전표 정보 조회 (전표 존재 여부 + ERP 전표번호)
-            setPostingInfo(order, response);
-            
+        if (orderIds.isEmpty()) {
+            return orderPage.map(OrderListResponse::from);
+        }
+
+        // 2단계: items를 포함한 주문 배치 조회 (1회 DB 호출)
+        List<Order> ordersWithItems = orderRepository.findByOrderIdInWithItems(orderIds);
+        Map<UUID, Order> orderMap = ordersWithItems.stream()
+                .collect(Collectors.toMap(Order::getOrderId, Function.identity()));
+
+        // 3단계: 매핑 정보 배치 조회 (1회 DB 호출)
+        Set<String> productSkuKeys = collectProductSkuKeys(ordersWithItems);
+        Map<String, Boolean> mappingMap = batchLoadMappingStatus(tenantId, productSkuKeys);
+
+        // 4단계: 전표 정보 배치 조회 (1회 DB 호출)
+        Map<UUID, List<com.sellsync.api.domain.posting.entity.Posting>> postingMap = batchLoadPostings(tenantId, orderIds);
+
+        // 5단계: 메모리에서 조합
+        return orderPage.map(order -> {
+            Order fullOrder = orderMap.getOrDefault(order.getOrderId(), order);
+            OrderListResponse response = OrderListResponse.from(fullOrder);
+
+            // 매핑 상태 계산 (메모리 매핑)
+            response.setMappingStatus(calculateMappingStatusFromMap(fullOrder, mappingMap));
+
+            // 정산 예정 금액 계산 (Order 엔티티 필드 사용, DB 호출 없음)
+            response.setExpectedSettlementAmount(calculateSettlementFromOrder(fullOrder));
+
+            // 전표 정보 설정 (메모리 매핑)
+            setPostingInfoFromMap(fullOrder, response, postingMap);
+
             return response;
         });
+    }
+
+    /**
+     * 주문 목록의 모든 아이템에서 productId:sku 키 수집
+     */
+    private Set<String> collectProductSkuKeys(List<Order> orders) {
+        Set<String> keys = new HashSet<>();
+        for (Order order : orders) {
+            if (order.getItems() != null) {
+                for (var item : order.getItems()) {
+                    String key = item.getMarketplaceProductId() + ":" +
+                            (item.getMarketplaceSku() != null ? item.getMarketplaceSku() : "");
+                    keys.add(key);
+                }
+            }
+        }
+        return keys;
+    }
+
+    /**
+     * 매핑 상태 배치 조회 — productId:sku → 매핑 존재 여부 Map
+     */
+    private Map<String, Boolean> batchLoadMappingStatus(UUID tenantId, Set<String> productSkuKeys) {
+        if (productSkuKeys.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        List<com.sellsync.api.domain.mapping.entity.ProductMapping> mappings =
+                productMappingRepository.findMappedByTenantIdAndProductSkuKeys(tenantId, new ArrayList<>(productSkuKeys));
+
+        Map<String, Boolean> result = new HashMap<>();
+        for (var mapping : mappings) {
+            String key = mapping.getMarketplaceProductId() + ":" +
+                    (mapping.getMarketplaceSku() != null ? mapping.getMarketplaceSku() : "");
+            result.put(key, true);
+        }
+        return result;
+    }
+
+    /**
+     * 전표 배치 조회 — orderId → Posting 목록 Map
+     */
+    private Map<UUID, List<com.sellsync.api.domain.posting.entity.Posting>> batchLoadPostings(UUID tenantId, List<UUID> orderIds) {
+        List<com.sellsync.api.domain.posting.entity.Posting> postings =
+                postingRepository.findByTenantIdAndOrderIdIn(tenantId, orderIds);
+        return postings.stream()
+                .collect(Collectors.groupingBy(com.sellsync.api.domain.posting.entity.Posting::getOrderId));
+    }
+
+    /**
+     * 매핑 상태 계산 (메모리 Map 기반, DB 호출 없음)
+     */
+    private String calculateMappingStatusFromMap(Order order, Map<String, Boolean> mappingMap) {
+        if (order.getItems() == null || order.getItems().isEmpty()) {
+            return "UNMAPPED";
+        }
+
+        int totalItems = order.getItems().size();
+        int mappedCount = 0;
+
+        for (var item : order.getItems()) {
+            String key = item.getMarketplaceProductId() + ":" +
+                    (item.getMarketplaceSku() != null ? item.getMarketplaceSku() : "");
+            if (Boolean.TRUE.equals(mappingMap.get(key))) {
+                mappedCount++;
+            }
+        }
+
+        if (mappedCount == 0) {
+            return "UNMAPPED";
+        } else if (mappedCount == totalItems) {
+            return "MAPPED";
+        } else {
+            return "PARTIAL";
+        }
+    }
+
+    /**
+     * 정산 예정 금액 계산 (Order 엔티티 필드 사용, DB 호출 없음)
+     */
+    private Long calculateSettlementFromOrder(Order order) {
+        if (order.getExpectedSettlementAmount() != null && order.getExpectedSettlementAmount() > 0) {
+            return order.getExpectedSettlementAmount();
+        }
+        long paid = order.getTotalPaidAmount() != null ? order.getTotalPaidAmount() : 0L;
+        long commission = order.getCommissionAmount() != null ? order.getCommissionAmount() : 0L;
+        long result = paid - commission;
+        return result > 0 ? result : 0L;
+    }
+
+    /**
+     * 전표 정보 설정 (메모리 Map 기반, DB 호출 없음)
+     */
+    private void setPostingInfoFromMap(Order order, OrderListResponse response,
+                                        Map<UUID, List<com.sellsync.api.domain.posting.entity.Posting>> postingMap) {
+        List<com.sellsync.api.domain.posting.entity.Posting> postings =
+                postingMap.getOrDefault(order.getOrderId(), Collections.emptyList());
+
+        response.setHasPosting(!postings.isEmpty());
+
+        if (!postings.isEmpty()) {
+            String erpDocumentNo = postings.stream()
+                    .filter(p -> p.getPostingStatus() == com.sellsync.api.domain.posting.enums.PostingStatus.POSTED)
+                    .map(com.sellsync.api.domain.posting.entity.Posting::getErpDocumentNo)
+                    .filter(Objects::nonNull)
+                    .findFirst()
+                    .orElse(null);
+            response.setErpDocumentNo(erpDocumentNo);
+        }
     }
     
     /**
@@ -438,15 +565,9 @@ public class OrderService {
             LocalDate toDate
     ) {
         return (root, query, cb) -> {
-            // DISTINCT 설정 (fetch join으로 인한 중복 제거)
-            query.distinct(true);
-            
-            // items fetch join (N+1 방지)
-            // ⚠️ COUNT 쿼리에서는 fetch join을 사용하면 오류 발생 -> 조회 쿼리일 때만 적용
-            if (query.getResultType() != Long.class && query.getResultType() != long.class) {
-                root.fetch("items", JoinType.LEFT);
-            }
-            
+            // items는 별도 배치 조회(findByOrderIdInWithItems)로 로딩하므로
+            // Specification에서는 fetch join하지 않음 (페이지네이션 호환성 유지)
+
             // WHERE 조건 생성
             var predicates = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
             
@@ -488,11 +609,10 @@ public class OrderService {
                 searchPredicates.add(cb.like(cb.lower(root.get("receiverName")), searchPattern));
                 
                 // 상품명 검색 (OrderItem의 productName)
-                // COUNT 쿼리가 아닐 때만 item join 사용
-                if (query.getResultType() != Long.class && query.getResultType() != long.class) {
-                    var itemsRoot = root.join("items", JoinType.LEFT);
-                    searchPredicates.add(cb.like(cb.lower(itemsRoot.get("productName")), searchPattern));
-                }
+                // items join 시 중복 방지를 위해 distinct 설정
+                var itemsRoot = root.join("items", JoinType.LEFT);
+                searchPredicates.add(cb.like(cb.lower(itemsRoot.get("productName")), searchPattern));
+                query.distinct(true);
                 
                 predicates.add(cb.or(searchPredicates.toArray(new jakarta.persistence.criteria.Predicate[0])));
             }

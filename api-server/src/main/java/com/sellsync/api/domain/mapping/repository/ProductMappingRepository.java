@@ -110,6 +110,21 @@ public interface ProductMappingRepository extends JpaRepository<ProductMapping, 
     );
 
     /**
+     * 배치 매핑 조회 — 주문 목록 성능 개선용
+     *
+     * productId:sku 조합 키 목록으로 MAPPED 상태인 매핑을 한 번에 조회
+     * 성능: 주문당 아이템별 개별 쿼리(N*M) → 1번 IN 쿼리
+     */
+    @Query("SELECT m FROM ProductMapping m WHERE m.tenantId = :tenantId " +
+           "AND m.isActive = TRUE " +
+           "AND m.mappingStatus = 'MAPPED' " +
+           "AND CONCAT(m.marketplaceProductId, ':', COALESCE(m.marketplaceSku, '')) IN :productSkuKeys")
+    List<ProductMapping> findMappedByTenantIdAndProductSkuKeys(
+        @Param("tenantId") UUID tenantId,
+        @Param("productSkuKeys") List<String> productSkuKeys
+    );
+
+    /**
      * 매핑되지 않은 상품 확인
      * - OrderItem의 marketplace_product_id + marketplace_sku로 매핑이 없는 경우 조회
      */

@@ -163,6 +163,19 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
     );
     
     // ============================================================
+    // N+1 최적화: 배치 조회 (주문 목록 성능 개선)
+    // ============================================================
+
+    /**
+     * 주문 ID 목록으로 items를 JOIN FETCH하여 배치 조회
+     *
+     * 사용처: getOrders() — 페이지네이션 조회 후 items를 한 번에 로딩
+     * 성능: N번 lazy loading → 1번 배치 쿼리
+     */
+    @Query("SELECT DISTINCT o FROM Order o LEFT JOIN FETCH o.items WHERE o.orderId IN :orderIds")
+    List<Order> findByOrderIdInWithItems(@Param("orderIds") List<UUID> orderIds);
+
+    // ============================================================
     // 기존 쿼리 메서드 (하위 호환성 유지)
     // ============================================================
     
