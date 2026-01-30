@@ -6,6 +6,7 @@ import { Toaster } from 'sonner';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { authApi } from '@/lib/api';
 import { PageLoading } from '@/components/common';
+import { LogoSymbol } from '@/components/ui/logo';
 
 export default function OnboardingLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -60,9 +61,7 @@ export default function OnboardingLayout({ children }: { children: React.ReactNo
       <header className="bg-white border-b">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gray-900 flex items-center justify-center">
-              <span className="text-white font-bold text-lg">S</span>
-            </div>
+            <LogoSymbol size={40} />
             <div>
               <h1 className="font-semibold text-gray-900">SellSync</h1>
               <p className="text-xs text-gray-500">초기 설정</p>

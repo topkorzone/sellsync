@@ -17,7 +17,7 @@ export default async function Image() {
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          background: 'linear-gradient(135deg, #111827 0%, #1f2937 50%, #111827 100%)',
+          background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
           fontFamily: 'sans-serif',
         }}
       >
@@ -25,29 +25,61 @@ export default async function Image() {
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '16px',
-            marginBottom: '32px',
+            gap: '20px',
+            marginBottom: '40px',
           }}
         >
-          <div
-            style={{
-              width: '64px',
-              height: '64px',
-              borderRadius: '16px',
-              background: '#ffffff',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '36px',
-              fontWeight: 'bold',
-              color: '#111827',
-            }}
+          {/* Logo symbol - gradient rounded square with sync arrows */}
+          <svg
+            width="72"
+            height="72"
+            viewBox="0 0 32 32"
+            fill="none"
           >
-            S
-          </div>
+            <rect width="32" height="32" rx="8" fill="url(#og-grad)" />
+            <path
+              d="M10 13C10 10.239 12.239 8 15 8H18"
+              stroke="white"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+            />
+            <path
+              d="M16 5.5L19 8L16 10.5"
+              stroke="white"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M22 19C22 21.761 19.761 24 17 24H14"
+              stroke="white"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+            />
+            <path
+              d="M16 21.5L13 24L16 26.5"
+              stroke="white"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <defs>
+              <linearGradient
+                id="og-grad"
+                x1="0"
+                y1="0"
+                x2="32"
+                y2="32"
+                gradientUnits="userSpaceOnUse"
+              >
+                <stop stopColor="#3B82F6" />
+                <stop offset="1" stopColor="#2563EB" />
+              </linearGradient>
+            </defs>
+          </svg>
           <span
             style={{
-              fontSize: '48px',
+              fontSize: '56px',
               fontWeight: 'bold',
               color: '#ffffff',
             }}

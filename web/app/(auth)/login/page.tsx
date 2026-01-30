@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { LogoSymbol } from '@/components/ui/logo';
 import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/lib/stores/auth-store';
 
@@ -95,8 +96,8 @@ function LoginContent() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 px-4">
       <Card className="w-full max-w-md shadow-xl border-gray-100 animate-in fade-in duration-500">
         <CardHeader className="space-y-2 text-center pb-6">
-          <Link href="/" className="mx-auto w-12 h-12 rounded-xl bg-gray-900 flex items-center justify-center mb-2 hover:scale-105 transition-transform">
-            <span className="text-white font-bold text-xl">S</span>
+          <Link href="/" className="mx-auto mb-2 hover:scale-105 transition-transform inline-flex">
+            <LogoSymbol size={48} />
           </Link>
           <CardTitle className="text-2xl font-bold text-gray-900">로그인</CardTitle>
           <CardDescription className="text-gray-500">

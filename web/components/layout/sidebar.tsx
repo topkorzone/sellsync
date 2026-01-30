@@ -23,6 +23,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useSidebarStore } from '@/lib/stores/sidebar-store';
 import { Button } from '@/components/ui/button';
+import { LogoSymbol, LogoFull } from '@/components/ui/logo';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 
@@ -113,13 +114,10 @@ function SidebarContent({
           "flex items-center gap-3 mb-2",
           isCollapsed && "justify-center"
         )}>
-          <div className="w-9 h-9 rounded-lg bg-gray-900 flex items-center justify-center flex-shrink-0">
-            <span className="text-white font-bold text-lg">S</span>
-          </div>
-          {!isCollapsed && (
-            <div>
-              <h1 className="text-lg font-bold text-gray-900">SellSync</h1>
-            </div>
+          {isCollapsed ? (
+            <LogoSymbol size={36} />
+          ) : (
+            <LogoFull height={36} />
           )}
         </div>
         {!isCollapsed && (
