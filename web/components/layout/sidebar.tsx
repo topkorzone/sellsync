@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -15,10 +16,12 @@ import {
   FileCode,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   HelpCircle,
   BookOpen,
   CreditCard,
-  Crown
+  Crown,
+  User
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSidebarStore } from '@/lib/stores/sidebar-store';
@@ -26,8 +29,15 @@ import { Button } from '@/components/ui/button';
 import { LogoSymbol, LogoFull } from '@/components/ui/logo';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import type { LucideIcon } from 'lucide-react';
 
-const NAV_ITEMS = [
+interface NavItemType {
+  label: string;
+  href: string;
+  icon: LucideIcon;
+}
+
+const NAV_ITEMS: NavItemType[] = [
   { label: '대시보드', href: '/dashboard', icon: LayoutDashboard },
   { label: '주문 관리', href: '/orders', icon: ShoppingCart },
   { label: '전표 관리', href: '/postings', icon: FileText },
@@ -36,27 +46,32 @@ const NAV_ITEMS = [
   { label: '상품 매핑', href: '/mappings', icon: Link2 },
   { label: '송장 관리', href: '/shipments', icon: Truck },
   { label: '동기화', href: '/sync', icon: RefreshCw },
+];
+
+const SETTINGS_ITEMS: NavItemType[] = [
+  { label: '프로필', href: '/settings/profile', icon: User },
   { label: '연동 설정', href: '/settings/integrations', icon: Plug },
   { label: '구독 관리', href: '/settings/subscription', icon: Crown },
   { label: '결제 관리', href: '/settings/billing', icon: CreditCard },
-  { label: '설정', href: '/settings/profile', icon: Settings },
 ];
 
-const HELP_ITEMS = [
+const HELP_ITEMS: NavItemType[] = [
   { label: '사용자 가이드', href: '/help/guide', icon: BookOpen },
   { label: '자주 묻는 질문', href: '/help/faq', icon: HelpCircle },
 ];
 
 // 네비게이션 아이템 컴포넌트 (재사용)
-function NavItem({ 
-  item, 
-  isActive, 
+function NavItem({
+  item,
+  isActive,
   isCollapsed,
-  onClick 
-}: { 
-  item: typeof NAV_ITEMS[0]; 
+  indent,
+  onClick
+}: {
+  item: NavItemType;
   isActive: boolean;
   isCollapsed: boolean;
+  indent?: boolean;
   onClick?: () => void;
 }) {
   const content = (
@@ -66,8 +81,9 @@ function NavItem({
       className={cn(
         'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200',
         isCollapsed && 'justify-center px-2',
-        isActive 
-          ? 'bg-gray-900 text-white shadow-sm' 
+        indent && !isCollapsed && 'pl-10',
+        isActive
+          ? 'bg-gray-900 text-white shadow-sm'
           : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
       )}
     >
@@ -93,11 +109,91 @@ function NavItem({
   return content;
 }
 
+// 설정 그룹 컴포넌트
+function SettingsGroup({
+  isCollapsed,
+  onNavClick,
+}: {
+  isCollapsed: boolean;
+  onNavClick?: () => void;
+}) {
+  const pathname = usePathname();
+  const isSettingsActive = SETTINGS_ITEMS.some((item) => pathname.startsWith(item.href));
+  const [isOpen, setIsOpen] = useState(isSettingsActive);
+
+  // 접힌 사이드바: 설정 아이콘만 표시 → 클릭 시 /settings/profile 이동
+  if (isCollapsed) {
+    return (
+      <Tooltip delayDuration={0}>
+        <TooltipTrigger asChild>
+          <Link
+            href="/settings/profile"
+            onClick={onNavClick}
+            className={cn(
+              'flex items-center justify-center px-2 py-2.5 rounded-lg text-sm font-medium transition-all duration-200',
+              isSettingsActive
+                ? 'bg-gray-900 text-white shadow-sm'
+                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+            )}
+          >
+            <Settings className="h-5 w-5 flex-shrink-0" />
+          </Link>
+        </TooltipTrigger>
+        <TooltipContent side="right" className="font-medium">
+          설정
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  // 펼쳐진 사이드바: 접기/펼치기 가능한 그룹
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={cn(
+          'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 w-full',
+          isSettingsActive && !isOpen
+            ? 'bg-gray-900 text-white shadow-sm'
+            : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+        )}
+      >
+        <Settings className="h-5 w-5 flex-shrink-0" />
+        <span>설정</span>
+        <ChevronDown
+          className={cn(
+            'h-4 w-4 ml-auto transition-transform duration-200',
+            isOpen && 'rotate-180'
+          )}
+        />
+      </button>
+      {isOpen && (
+        <div className="mt-1 space-y-1">
+          {SETTINGS_ITEMS.map((item) => {
+            const isActive = pathname.startsWith(item.href);
+            return (
+              <NavItem
+                key={item.href}
+                item={item}
+                isActive={isActive}
+                isCollapsed={false}
+                indent
+                onClick={onNavClick}
+              />
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 사이드바 컨텐츠 (데스크톱/모바일 공용)
-function SidebarContent({ 
+function SidebarContent({
   isCollapsed = false,
   onNavClick
-}: { 
+}: {
   isCollapsed?: boolean;
   onNavClick?: () => void;
 }) {
@@ -131,15 +227,16 @@ function SidebarContent({
           {NAV_ITEMS.map((item) => {
             const isActive = pathname.startsWith(item.href);
             return (
-              <NavItem 
-                key={item.href} 
-                item={item} 
-                isActive={isActive} 
+              <NavItem
+                key={item.href}
+                item={item}
+                isActive={isActive}
                 isCollapsed={isCollapsed}
                 onClick={onNavClick}
               />
             );
           })}
+          <SettingsGroup isCollapsed={isCollapsed} onNavClick={onNavClick} />
         </TooltipProvider>
       </nav>
 
@@ -154,10 +251,10 @@ function SidebarContent({
               {HELP_ITEMS.map((item) => {
                 const isActive = pathname.startsWith(item.href);
                 return (
-                  <NavItem 
-                    key={item.href} 
-                    item={item} 
-                    isActive={isActive} 
+                  <NavItem
+                    key={item.href}
+                    item={item}
+                    isActive={isActive}
                     isCollapsed={false}
                     onClick={onNavClick}
                   />
@@ -176,14 +273,14 @@ export function Sidebar() {
   const { isCollapsed, toggleCollapse } = useSidebarStore();
 
   return (
-    <aside 
+    <aside
       className={cn(
         "hidden lg:flex flex-col bg-white border-r border-gray-100 min-h-screen p-6 relative transition-all duration-300 ease-in-out",
         isCollapsed ? "w-20 p-4" : "w-64"
       )}
     >
       <SidebarContent isCollapsed={isCollapsed} />
-      
+
       {/* 접기/펼치기 토글 버튼 */}
       <Button
         variant="ghost"
