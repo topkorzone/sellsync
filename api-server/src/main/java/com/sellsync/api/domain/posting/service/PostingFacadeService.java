@@ -1,6 +1,7 @@
 package com.sellsync.api.domain.posting.service;
 
 import com.sellsync.api.domain.order.entity.Order;
+import com.sellsync.api.domain.order.enums.Marketplace;
 import com.sellsync.api.domain.order.enums.SettlementCollectionStatus;
 import com.sellsync.api.domain.order.exception.OrderNotFoundException;
 import com.sellsync.api.domain.order.repository.OrderRepository;
@@ -20,8 +21,9 @@ import java.util.UUID;
  * 주문 기반 전표 생성 시 정산 완료 여부에 따른 라우팅 로직을 담당합니다.
  *
  * 라우팅 규칙:
- * - 정산 완료(COLLECTED) 주문 → OrderSettlementPostingService (정산 전표)
- * - 일반 주문 → PostingService (기본 전표)
+ * - 정산 완료(COLLECTED) 주문 → OrderSettlementPostingService (통합 전표)
+ * - 쿠팡 주문 (정산 미수집 포함) → OrderSettlementPostingService (통합 전표, 예상 수수료 사용)
+ * - 기타 일반 주문 → PostingService (기본 전표)
  */
 @Slf4j
 @Service
@@ -43,10 +45,18 @@ public class PostingFacadeService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new OrderNotFoundException(orderId));
 
-        // 정산 완료 주문(COLLECTED)인 경우 통합 전표 생성 사용
-        if (order.getSettlementStatus() == SettlementCollectionStatus.COLLECTED) {
-            log.info("[정산 완료 주문 - 통합 전표 생성 사용] orderId={}, bundleOrderId={}",
-                orderId, order.getBundleOrderId());
+        // 통합 전표 생성 대상:
+        // 1. 정산 완료(COLLECTED) 주문 → 정산 데이터 기반 통합 전표
+        // 2. 쿠팡 주문 (정산 미수집 포함) → 예상 수수료 기반 통합 전표
+        //    (OrderSettlementPostingService에서 쿠팡 정산 미수집 허용)
+        boolean useIntegrated = order.getSettlementStatus() == SettlementCollectionStatus.COLLECTED
+                || order.getMarketplace() == Marketplace.COUPANG;
+
+        if (useIntegrated) {
+            String reason = order.getSettlementStatus() == SettlementCollectionStatus.COLLECTED
+                    ? "정산 완료" : "쿠팡 주문 (예상 수수료 사용)";
+            log.info("[통합 전표 생성 사용 - {}] orderId={}, bundleOrderId={}, settlementStatus={}",
+                reason, orderId, order.getBundleOrderId(), order.getSettlementStatus());
 
             String bundleOrderId = order.getBundleOrderId() != null ?
                 order.getBundleOrderId() : order.getMarketplaceOrderId();

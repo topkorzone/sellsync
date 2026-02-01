@@ -8,13 +8,12 @@ import {
   ShoppingBag,
   RefreshCw,
   Link2,
-  ExternalLink,
 } from 'lucide-react';
 import { PageHeader } from '@/components/layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Separator } from '@/components/ui/separator';
+import IntegrationGuide from '@/components/guide/IntegrationGuide';
 
 export default function GuidePage() {
   return (
@@ -25,11 +24,35 @@ export default function GuidePage() {
       />
 
       <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="overview">개요</TabsTrigger>
-          <TabsTrigger value="setup">연동 설정</TabsTrigger>
-          <TabsTrigger value="sync">주문 동기화</TabsTrigger>
-          <TabsTrigger value="mapping">상품 매핑</TabsTrigger>
+        <TabsList className="w-full h-auto p-1.5 bg-gray-100 rounded-xl grid grid-cols-4 gap-1">
+          <TabsTrigger
+            value="overview"
+            className="flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-semibold rounded-lg data-[state=active]:bg-blue-600 data-[state=active]:text-white data-[state=active]:shadow-md text-gray-600 hover:text-gray-900 hover:bg-gray-200 transition-all"
+          >
+            <BookOpen className="h-4 w-4" />
+            개요
+          </TabsTrigger>
+          <TabsTrigger
+            value="setup"
+            className="flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-semibold rounded-lg data-[state=active]:bg-blue-600 data-[state=active]:text-white data-[state=active]:shadow-md text-gray-600 hover:text-gray-900 hover:bg-gray-200 transition-all"
+          >
+            <Settings className="h-4 w-4" />
+            연동 설정
+          </TabsTrigger>
+          <TabsTrigger
+            value="sync"
+            className="flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-semibold rounded-lg data-[state=active]:bg-blue-600 data-[state=active]:text-white data-[state=active]:shadow-md text-gray-600 hover:text-gray-900 hover:bg-gray-200 transition-all"
+          >
+            <RefreshCw className="h-4 w-4" />
+            주문 동기화
+          </TabsTrigger>
+          <TabsTrigger
+            value="mapping"
+            className="flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-semibold rounded-lg data-[state=active]:bg-blue-600 data-[state=active]:text-white data-[state=active]:shadow-md text-gray-600 hover:text-gray-900 hover:bg-gray-200 transition-all"
+          >
+            <Link2 className="h-4 w-4" />
+            상품 매핑
+          </TabsTrigger>
         </TabsList>
 
         {/* 개요 */}
@@ -143,174 +166,7 @@ export default function GuidePage() {
 
         {/* 연동 설정 */}
         <TabsContent value="setup" className="space-y-6">
-          <Card id="setup-erp">
-            <CardHeader>
-              <CardTitle>1. Ecount ERP 연동</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <h4 className="font-semibold text-yellow-900 mb-2">사전 준비: API 인증키 발급</h4>
-                <p className="text-sm text-yellow-800">
-                  Ecount ERP에서 API 인증키를 먼저 발급받아야 합니다.
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <h4 className="font-semibold text-gray-900">발급 절차</h4>
-                <ol className="space-y-2 list-decimal list-inside text-gray-600">
-                  <li>Ecount ERP 로그인</li>
-                  <li>Self-Customizing → 정보관리 → API 인증키관리 이동</li>
-                  <li>API 인증키 발급 (발급된 키는 안전하게 보관)</li>
-                </ol>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-3">
-                <h4 className="font-semibold text-gray-900">SellSync에서 ERP 연동</h4>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-2 text-left font-semibold">항목</th>
-                        <th className="px-4 py-2 text-left font-semibold">설명</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      <tr>
-                        <td className="px-4 py-2 font-mono text-xs">COM_CODE</td>
-                        <td className="px-4 py-2 text-gray-600">
-                          Ecount 회사코드 (로그인 시 사용하는 회사코드)
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="px-4 py-2 font-mono text-xs">USER_ID</td>
-                        <td className="px-4 py-2 text-gray-600">Ecount 사용자 ID</td>
-                      </tr>
-                      <tr>
-                        <td className="px-4 py-2 font-mono text-xs">API_CERT_KEY</td>
-                        <td className="px-4 py-2 text-gray-600">위에서 발급받은 API 인증키</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <Link href="/settings/integrations?tab=erp">
-                <Badge className="cursor-pointer">
-                  ERP 연동 설정하러 가기 →
-                </Badge>
-              </Link>
-            </CardContent>
-          </Card>
-
-          <Card id="setup-store">
-            <CardHeader>
-              <CardTitle>2. 네이버 스마트스토어 연동</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-3">
-                <h4 className="font-semibold text-gray-900">Step 1: 네이버 커머스 API 키 발급</h4>
-                <ol className="space-y-2 list-decimal list-inside text-gray-600 text-sm">
-                  <li>
-                    네이버 커머스 API 센터 접속:{' '}
-                    <a
-                      href="https://apicenter.commerce.naver.com"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline inline-flex items-center gap-1"
-                    >
-                      apicenter.commerce.naver.com
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                  </li>
-                  <li>스마트스토어 통합매니저 계정으로 로그인</li>
-                  <li>우측 상단 [계정생성] 클릭</li>
-                  <li>개발업체 계정명, 장애대응 연락처 입력 후 약관 동의</li>
-                  <li>[애플리케이션 등록] → [등록하기] 클릭</li>
-                  <li>
-                    애플리케이션 정보 입력:
-                    <ul className="ml-6 mt-1 space-y-1">
-                      <li>• 애플리케이션 이름: 스토어명 또는 SellSync 연동</li>
-                      <li>• API 호출 IP: SellSync 서버 IP 입력 (문의 필요)</li>
-                      <li>• API 그룹: 주문/판매자 API 선택</li>
-                    </ul>
-                  </li>
-                  <li>등록 완료 후 Client ID와 Client Secret 확인</li>
-                </ol>
-              </div>
-
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                <p className="text-sm text-red-800">
-                  <strong>주의:</strong> 네이버 커머스 API는 통합매니저 권한으로만 발급 가능합니다. 또한
-                  주기적인 인증이 필요하며, 미인증 시 휴면 처리됩니다.
-                </p>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-3">
-                <h4 className="font-semibold text-gray-900">Step 2: SellSync에서 스토어 연동</h4>
-                <p className="text-sm text-gray-600">
-                  설정 → 연동 설정 → 스토어 목록에서 [+ 스토어 추가] 클릭 후 네이버 스마트스토어 선택
-                </p>
-              </div>
-
-              <Link href="/settings/integrations?tab=stores">
-                <Badge className="cursor-pointer">
-                  스토어 연동 설정하러 가기 →
-                </Badge>
-              </Link>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>3. 쿠팡 연동</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-3">
-                <h4 className="font-semibold text-gray-900">Step 1: 쿠팡 Wing에서 API 키 발급</h4>
-                <ol className="space-y-2 list-decimal list-inside text-gray-600 text-sm">
-                  <li>
-                    쿠팡 Wing 접속:{' '}
-                    <a
-                      href="https://wing.coupang.com"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline inline-flex items-center gap-1"
-                    >
-                      wing.coupang.com
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                  </li>
-                  <li>판매자 계정으로 로그인</li>
-                  <li>우측 상단 [본인 아이디] 클릭 → [판매자정보] 또는 [추가판매정보] 메뉴 선택</li>
-                  <li>하단의 [OPEN API 키 발급] 섹션에서 [API Key 발급 받기] 클릭</li>
-                  <li>키의 사용 목적 팝업에서 [OPEN API] 선택 후 확인</li>
-                  <li>연동업체 선택 또는 자체개발 선택 (자체개발 시 IP 주소 입력 필요)</li>
-                  <li>발급 완료 후 업체코드(Vendor ID), Access Key, Secret Key 확인</li>
-                </ol>
-              </div>
-
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-2">
-                <p className="text-sm text-red-800">
-                  <strong>주의사항:</strong>
-                </p>
-                <ul className="text-sm text-red-800 space-y-1 ml-4">
-                  <li>• 사업자 인증을 완료해야 API 키 발급이 가능합니다</li>
-                  <li>• OPEN API 키의 유효기간은 180일이며, 만료 전 재발급이 필요합니다</li>
-                  <li>• 발급된 키는 외부 유출에 주의하세요</li>
-                </ul>
-              </div>
-
-              <Link href="/settings/integrations?tab=stores">
-                <Badge className="cursor-pointer">
-                  스토어 연동 설정하러 가기 →
-                </Badge>
-              </Link>
-            </CardContent>
-          </Card>
+          <IntegrationGuide />
         </TabsContent>
 
         {/* 주문 동기화 */}

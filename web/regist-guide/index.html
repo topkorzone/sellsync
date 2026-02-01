@@ -1,0 +1,1392 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SellSync 마켓 연동 가이드</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --gray-50: #f9fafb;
+            --gray-100: #f3f4f6;
+            --gray-200: #e5e7eb;
+            --gray-300: #d1d5db;
+            --gray-500: #6b7280;
+            --gray-700: #374151;
+            --gray-900: #111827;
+            --naver: #03c75a;
+            --coupang: #e52528;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--gray-50);
+            color: var(--gray-900);
+            line-height: 1.7;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 48px;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: var(--gray-900);
+        }
+
+        .header p {
+            font-size: 16px;
+            color: var(--gray-500);
+        }
+
+        /* Tab Navigation */
+        .tab-nav {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 32px;
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 16px 24px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            background: white;
+            color: var(--gray-500);
+            border: 2px solid var(--gray-200);
+        }
+
+        .tab-btn:hover {
+            border-color: var(--gray-300);
+        }
+
+        .tab-btn.active[data-tab="smartstore"] {
+            background: var(--naver);
+            color: white;
+            border-color: var(--naver);
+        }
+
+        .tab-btn.active[data-tab="coupang"] {
+            background: var(--coupang);
+            color: white;
+            border-color: var(--coupang);
+        }
+
+        .tab-btn.active[data-tab="ecount"] {
+            background: #6366f1;
+            color: white;
+            border-color: #6366f1;
+        }
+
+        .tab-btn svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        /* Tab Content */
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Step Cards */
+        .step-card {
+            background: white;
+            border-radius: 16px;
+            padding: 32px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .step-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .step-badge {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 20px;
+            color: white;
+            flex-shrink: 0;
+        }
+
+        .step-badge.naver {
+            background: var(--naver);
+        }
+
+        .step-badge.coupang {
+            background: var(--coupang);
+        }
+
+        .step-title {
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .step-subtitle {
+            font-size: 14px;
+            color: var(--gray-500);
+            margin-top: 4px;
+        }
+
+        /* Instructions */
+        .instruction {
+            display: flex;
+            gap: 16px;
+            padding: 20px 0;
+            border-bottom: 1px solid var(--gray-100);
+        }
+
+        .instruction:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .instruction-number {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: var(--gray-100);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 14px;
+            color: var(--gray-700);
+            flex-shrink: 0;
+        }
+
+        .instruction-content {
+            flex: 1;
+        }
+
+        .instruction-text {
+            font-size: 15px;
+            color: var(--gray-700);
+            margin-bottom: 12px;
+        }
+
+        .instruction-text strong {
+            color: var(--gray-900);
+        }
+
+        /* Screenshot */
+        .screenshot {
+            margin: 16px 0;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid var(--gray-200);
+            background: var(--gray-100);
+        }
+
+        .screenshot img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .screenshot-caption {
+            padding: 12px 16px;
+            background: var(--gray-50);
+            font-size: 13px;
+            color: var(--gray-500);
+            border-top: 1px solid var(--gray-200);
+        }
+
+        /* Link Button */
+        .link-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            background: var(--gray-100);
+            border-radius: 8px;
+            color: var(--primary);
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            margin-bottom: 12px;
+        }
+
+        .link-btn:hover {
+            background: var(--gray-200);
+        }
+
+        .link-btn svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        /* Alert Box */
+        .alert {
+            padding: 16px 20px;
+            border-radius: 10px;
+            font-size: 14px;
+            margin-top: 16px;
+        }
+
+        .alert-info {
+            background: #eff6ff;
+            border-left: 4px solid var(--primary);
+            color: #1e40af;
+        }
+
+        .alert-warning {
+            background: #fffbeb;
+            border-left: 4px solid var(--warning);
+            color: #92400e;
+        }
+
+        .alert-success {
+            background: #ecfdf5;
+            border-left: 4px solid var(--success);
+            color: #065f46;
+        }
+
+        .alert strong {
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        /* Code/Value Box */
+        .value-box {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            background: var(--gray-900);
+            border-radius: 6px;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 14px;
+            color: white;
+            margin: 8px 0;
+        }
+
+        .copy-btn {
+            background: none;
+            border: none;
+            color: var(--gray-300);
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .copy-btn:hover {
+            color: white;
+            background: rgba(255,255,255,0.1);
+        }
+
+        /* Input Preview */
+        .input-preview {
+            background: var(--gray-50);
+            border: 2px dashed var(--gray-200);
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 16px;
+        }
+
+        .input-preview-title {
+            font-size: 13px;
+            color: var(--gray-500);
+            margin-bottom: 12px;
+            font-weight: 500;
+        }
+
+        .input-field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+
+        .input-field:last-child {
+            margin-bottom: 0;
+        }
+
+        .input-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--gray-700);
+        }
+
+        .input-sample {
+            padding: 10px 14px;
+            background: white;
+            border: 1px solid var(--gray-200);
+            border-radius: 6px;
+            font-size: 14px;
+            color: var(--gray-500);
+        }
+
+        /* Checklist */
+        .checklist {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid var(--gray-100);
+        }
+
+        .checklist-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 12px 0;
+        }
+
+        .checklist-item input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            margin-top: 2px;
+            cursor: pointer;
+            accent-color: var(--success);
+        }
+
+        .checklist-item label {
+            font-size: 15px;
+            color: var(--gray-700);
+            cursor: pointer;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--gray-500);
+            font-size: 14px;
+        }
+
+        .footer a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        /* Responsive */
+        @media (max-width: 640px) {
+            .container {
+                padding: 24px 16px;
+            }
+
+            .header h1 {
+                font-size: 24px;
+            }
+
+            .tab-nav {
+                flex-direction: column;
+            }
+
+            .step-card {
+                padding: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🔗 마켓 연동 가이드</h1>
+            <p>아래 단계를 따라하면 5분 안에 연동을 완료할 수 있어요</p>
+        </div>
+
+        <!-- Tab Navigation -->
+        <div class="tab-nav">
+            <button class="tab-btn active" data-tab="smartstore">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                </svg>
+                스마트스토어
+            </button>
+            <button class="tab-btn" data-tab="coupang">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12z"/>
+                </svg>
+                쿠팡
+            </button>
+            <button class="tab-btn" data-tab="ecount">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>
+                </svg>
+                이카운트 ERP
+            </button>
+        </div>
+
+        <!-- ==================== 스마트스토어 가이드 ==================== -->
+        <div class="tab-content active" id="smartstore">
+
+            <!-- Step 1: 계정 생성 -->
+            <div class="step-card">
+                <div class="step-header">
+                    <div class="step-badge naver">1</div>
+                    <div>
+                        <div class="step-title">커머스 API 계정 만들기</div>
+                        <div class="step-subtitle">최초 1회만 진행하면 됩니다</div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">1</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            먼저 <strong>통합매니저 권한</strong>이 있는 계정인지 확인하세요.<br>
+                            스마트스토어센터 → 판매자정보 → 매니저관리에서 확인할 수 있어요.
+                        </div>
+                        <div class="screenshot">
+                            <img src="naver-02-manager.png" alt="통합매니저 권한 확인">
+                            <div class="screenshot-caption">👆 매니저관리에서 "통합 매니저" 권한 확인</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">2</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            아래 링크를 클릭해서 <strong>네이버 커머스 API 센터</strong>에 접속하세요.
+                        </div>
+                        <a href="https://apicenter.commerce.naver.com/ko/basic/join/step1" target="_blank" class="link-btn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                                <polyline points="15 3 21 3 21 9"/>
+                                <line x1="10" y1="14" x2="21" y2="3"/>
+                            </svg>
+                            커머스 API 센터 바로가기
+                        </a>
+                        <div class="screenshot">
+                            <img src="naver-03-apicenter.png" alt="커머스 API 센터">
+                            <div class="screenshot-caption">👆 초록색 버튼 "내 스마트스토어 전용 커머스API가 필요한 스토어" 클릭</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">3</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            로그인 화면이 나오면 <strong>통합매니저 권한이 있는 계정</strong>으로 로그인하세요.
+                        </div>
+                        <div class="screenshot">
+                            <img src="naver-04-login-form.png" alt="로그인 화면">
+                            <div class="screenshot-caption">👆 네이버 커머스 ID로 로그인</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">4</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            계정 정보를 입력하고 <strong>가입하기</strong> 버튼을 클릭하세요.
+                        </div>
+                        <div class="screenshot">
+                            <img src="naver-06-account-form.png" alt="계정 생성">
+                            <div class="screenshot-caption">👆 ① 계정명 입력 → ② 이메일 인증 → ③ 가입하기 클릭</div>
+                        </div>
+                        <div class="alert alert-success">
+                            <strong>✅ 이미 가입되어 있다면?</strong>
+                            자동으로 다음 단계로 넘어가니 걱정하지 마세요!
+                        </div>
+                        <div class="screenshot">
+                            <img src="naver-07-already-joined.png" alt="이미 가입된 경우">
+                            <div class="screenshot-caption">👆 이미 가입된 경우 이런 팝업이 뜹니다. 확인 클릭!</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2: 애플리케이션 등록 -->
+            <div class="step-card">
+                <div class="step-header">
+                    <div class="step-badge naver">2</div>
+                    <div>
+                        <div class="step-title">애플리케이션 등록하기</div>
+                        <div class="step-subtitle">연동에 필요한 키를 발급받아요</div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">1</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            아래 링크로 접속한 뒤 <strong>"등록하기"</strong> 버튼을 클릭하세요.
+                        </div>
+                        <a href="https://apicenter.commerce.naver.com/ko/member/home" target="_blank" class="link-btn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                                <polyline points="15 3 21 3 21 9"/>
+                                <line x1="10" y1="14" x2="21" y2="3"/>
+                            </svg>
+                            애플리케이션 관리 바로가기
+                        </a>
+                        <div class="screenshot">
+                            <img src="naver-08-app-register.png" alt="애플리케이션 등록">
+                            <div class="screenshot-caption">👆 초록색 "등록하기" 버튼 클릭</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">2</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            오른쪽 위에서 <strong>연동할 스토어를 선택</strong>하고, 애플리케이션 이름과 설명을 입력하세요.
+                        </div>
+                        <div class="screenshot">
+                            <img src="naver-09-store-select.png" alt="스토어 선택">
+                            <div class="screenshot-caption">👆 ① 스토어 선택 → ② 이름/설명 입력</div>
+                        </div>
+                        <div class="input-preview">
+                            <div class="input-preview-title">입력 예시</div>
+                            <div class="input-field">
+                                <span class="input-label">애플리케이션 이름</span>
+                                <div class="input-sample">SellSync</div>
+                            </div>
+                            <div class="input-field">
+                                <span class="input-label">설명</span>
+                                <div class="input-sample">주문 연동용</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">3</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            아래로 스크롤해서 <strong>API 그룹을 모두 추가</strong>하세요.
+                        </div>
+                        <div class="screenshot">
+                            <img src="naver-10-api-group.png" alt="API 그룹 추가">
+                            <div class="screenshot-caption">👆 각 항목의 "추가" 버튼을 클릭해서 모두 추가</div>
+                        </div>
+                        <div class="screenshot">
+                            <img src="naver-11-api-added.png" alt="API 그룹 추가 완료">
+                            <div class="screenshot-caption">👆 추가되면 "삭제" 버튼으로 바뀝니다</div>
+                        </div>
+                        <div class="alert alert-warning">
+                            <strong>⚠️ 중요!</strong>
+                            반드시 모든 API 그룹을 추가해야 주문 수집이 정상적으로 됩니다.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">4</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            맨 아래 <strong>등록</strong> 버튼을 클릭하면 완료!
+                        </div>
+                        <div class="screenshot">
+                            <img src="naver-12-register-btn.png" alt="등록 버튼">
+                            <div class="screenshot-caption">👆 초록색 "등록" 버튼 클릭</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">5</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            등록이 완료되면 <strong>애플리케이션 ID</strong>와 <strong>시크릿 코드</strong>가 발급됩니다.
+                        </div>
+                        <div class="screenshot">
+                            <img src="naver-14-app-keys.png" alt="애플리케이션 ID/시크릿">
+                            <div class="screenshot-caption">👆 애플리케이션 ID와 시크릿 코드 확인</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">6</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            <strong>수정</strong> 버튼을 클릭해서 <strong>API 호출 IP</strong>를 추가하세요.
+                        </div>
+                        <div class="screenshot">
+                            <img src="naver-15-ip-add.png" alt="IP 추가">
+                            <div class="screenshot-caption">👆 API 호출 IP에 SellSync 서버 IP 추가</div>
+                        </div>
+                        <div class="input-preview">
+                            <div class="input-preview-title">추가할 IP 주소</div>
+                            <div class="input-field">
+                                <span class="input-label">IP 주소</span>
+                                <div class="value-box">
+                                    54.180.135.117
+                                    <button class="copy-btn" onclick="copyToClipboard('54.180.135.117')">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="alert alert-warning">
+                            <strong>⚠️ IP 주소 필수!</strong>
+                            IP 주소를 입력하지 않으면 SellSync에서 주문을 가져올 수 없어요.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 3: SellSync 입력 -->
+            <div class="step-card">
+                <div class="step-header">
+                    <div class="step-badge naver">3</div>
+                    <div>
+                        <div class="step-title">SellSync에 입력하기</div>
+                        <div class="step-subtitle">발급받은 키를 붙여넣기 하세요</div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">1</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            SellSync에서 <strong>스토어 연동</strong> 메뉴로 이동하세요.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">2</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            발급받은 정보를 아래와 같이 입력하세요:
+                        </div>
+                        <div class="input-preview">
+                            <div class="input-preview-title">SellSync 입력란</div>
+                            <div class="input-field">
+                                <span class="input-label">Client ID (클라이언트 ID)</span>
+                                <div class="input-sample">애플리케이션 ID를 붙여넣기</div>
+                            </div>
+                            <div class="input-field">
+                                <span class="input-label">Client Secret (클라이언트 시크릿)</span>
+                                <div class="input-sample">시크릿 코드를 붙여넣기</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">3</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            <strong>저장</strong> 버튼을 클릭하면 연동 완료! 🎉
+                        </div>
+                    </div>
+                </div>
+
+                <div class="checklist">
+                    <div class="checklist-item">
+                        <input type="checkbox" id="naver-check-1">
+                        <label for="naver-check-1">커머스 API 계정 가입 완료</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="naver-check-2">
+                        <label for="naver-check-2">애플리케이션 등록 완료</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="naver-check-3">
+                        <label for="naver-check-3">IP 주소 (54.180.135.117) 추가 완료</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="naver-check-4">
+                        <label for="naver-check-4">SellSync에 키 입력 완료</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== 쿠팡 가이드 ==================== -->
+        <div class="tab-content" id="coupang">
+
+            <!-- Step 1: API 발급 -->
+            <div class="step-card">
+                <div class="step-header">
+                    <div class="step-badge coupang">1</div>
+                    <div>
+                        <div class="step-title">쿠팡윙에서 API 발급받기</div>
+                        <div class="step-subtitle">쿠팡 판매자센터에서 진행합니다</div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">1</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            <strong>쿠팡윙(판매자센터)</strong>에 로그인 후, 우측 상단 <strong>내 아이디</strong>를 클릭하세요.<br>
+                            <strong>판매자정보</strong> 또는 <strong>추가판매정보</strong>를 클릭하세요.
+                        </div>
+                        <a href="https://wing.coupang.com" target="_blank" class="link-btn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                                <polyline points="15 3 21 3 21 9"/>
+                                <line x1="10" y1="14" x2="21" y2="3"/>
+                            </svg>
+                            쿠팡윙 바로가기
+                        </a>
+                        <div class="screenshot">
+                            <img src="coupang-01-menu.png" alt="쿠팡윙 메뉴">
+                            <div class="screenshot-caption">👆 ① 우측 상단 아이디 클릭 → ② 판매자정보 또는 추가판매정보 클릭</div>
+                        </div>
+                        <div class="alert alert-info">
+                            <strong>💡 메뉴 위치가 다를 수 있어요</strong>
+                            판매자 유형에 따라 "판매자정보" 또는 "추가판매정보" 중 하나에 있어요.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">2</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            페이지 하단으로 스크롤해서 <strong>"API Key 발급 받기"</strong> 버튼을 클릭하세요.<br>
+                            팝업창에서 <strong>OPEN API</strong>를 선택하고 확인을 클릭하세요.
+                        </div>
+                        <div class="screenshot">
+                            <img src="coupang-02-api-select.png" alt="API Key 발급">
+                            <div class="screenshot-caption">👆 ① API Key 발급 받기 클릭 → ② OPEN API 선택 → ③ 확인 클릭</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">3</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            약관에 동의하고 <strong>"약관 동의 및 Key 발급받기"</strong>를 클릭하세요.
+                        </div>
+                        <div class="screenshot">
+                            <img src="coupang-03-terms.png" alt="약관 동의">
+                            <div class="screenshot-caption">👆 약관에 체크 후 "약관 동의 및 Key 발급받기" 클릭</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">4</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            업체 입력 방식에서 <strong>"자체개발(직접입력)"</strong>을 선택하고 아래와 같이 입력하세요.
+                        </div>
+                        <div class="screenshot">
+                            <img src="coupang-05-self-dev.png" alt="자체개발 입력">
+                            <div class="screenshot-caption">👆 자체개발(직접입력) 선택 후 업체명, URL, IP 주소 입력</div>
+                        </div>
+                        <div class="input-preview">
+                            <div class="input-preview-title">입력 내용</div>
+                            <div class="input-field">
+                                <span class="input-label">업체명</span>
+                                <div class="input-sample">SellSync</div>
+                            </div>
+                            <div class="input-field">
+                                <span class="input-label">URL</span>
+                                <div class="input-sample">https://sell-sync.biz</div>
+                            </div>
+                            <div class="input-field">
+                                <span class="input-label">IP 주소</span>
+                                <div class="value-box">
+                                    54.180.135.117
+                                    <button class="copy-btn" onclick="copyToClipboard('54.180.135.117')">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="alert alert-warning">
+                            <strong>⚠️ IP 주소 필수!</strong>
+                            IP 주소를 입력하지 않으면 SellSync에서 주문을 가져올 수 없어요.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">5</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            <strong>확인</strong> 버튼을 클릭하면 발급 완료!<br>
+                            <strong>업체코드</strong>, <strong>Access Key</strong>, <strong>Secret Key</strong>가 화면에 표시됩니다.
+                        </div>
+                        <div class="screenshot">
+                            <img src="coupang-06-complete.png" alt="발급 완료">
+                            <div class="screenshot-caption">👆 업체코드, Access Key, Secret Key 확인</div>
+                        </div>
+                        <div class="alert alert-info">
+                            <strong>⏰ 참고사항</strong>
+                            최초 발급 시 실제 사용까지 최대 24시간이 걸릴 수 있어요.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">6</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            <strong>이미 발급받은 경우</strong>, 연동 정보에서 <strong>수정</strong> 버튼을 클릭해서 IP를 추가할 수 있어요.
+                        </div>
+                        <div class="screenshot">
+                            <img src="coupang-08-ip-complete.png" alt="연동 정보 수정">
+                            <div class="screenshot-caption">👆 연동 정보 영역의 "수정" 버튼 클릭</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">7</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            팝업창에서 <strong>IP 주소</strong> 입력란에 아래 IP를 추가하고 <strong>확인</strong>을 클릭하세요.
+                        </div>
+                        <div class="screenshot">
+                            <img src="coupang-07-ip-edit.png" alt="IP 주소 수정">
+                            <div class="screenshot-caption">👆 IP 주소란에 SellSync 서버 IP 추가</div>
+                        </div>
+                        <div class="input-preview">
+                            <div class="input-preview-title">추가할 IP 주소</div>
+                            <div class="input-field">
+                                <span class="input-label">IP 주소</span>
+                                <div class="value-box">
+                                    54.180.135.117
+                                    <button class="copy-btn" onclick="copyToClipboard('54.180.135.117')">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="alert alert-warning">
+                            <strong>⚠️ IP가 여러 개인 경우</strong>
+                            쉼표(,)로 구분해서 입력하세요. 예: 54.180.135.117, 211.48.92.8
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2: SellSync 입력 -->
+            <div class="step-card">
+                <div class="step-header">
+                    <div class="step-badge coupang">2</div>
+                    <div>
+                        <div class="step-title">SellSync에 입력하기</div>
+                        <div class="step-subtitle">발급받은 키를 붙여넣기 하세요</div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">1</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            SellSync에서 <strong>스토어 연동</strong> 메뉴로 이동하세요.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">2</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            쿠팡윙에서 발급받은 정보를 아래와 같이 입력하세요:
+                        </div>
+                        <div class="input-preview">
+                            <div class="input-preview-title">SellSync 입력란</div>
+                            <div class="input-field">
+                                <span class="input-label">업체코드 (Vendor ID)</span>
+                                <div class="input-sample">업체코드를 붙여넣기</div>
+                            </div>
+                            <div class="input-field">
+                                <span class="input-label">Access Key</span>
+                                <div class="input-sample">Access Key를 붙여넣기</div>
+                            </div>
+                            <div class="input-field">
+                                <span class="input-label">Secret Key</span>
+                                <div class="input-sample">Secret Key를 붙여넣기</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">3</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            <strong>저장</strong> 버튼을 클릭하면 연동 완료! 🎉
+                        </div>
+                    </div>
+                </div>
+
+                <div class="alert alert-warning" style="margin-top: 20px;">
+                    <strong>⏰ API 유효기간 안내</strong>
+                    쿠팡 API는 180일마다 갱신이 필요해요. 만료 14일 전부터 재발급이 가능하며, SellSync에서 알림을 보내드릴게요.
+                </div>
+
+                <div class="checklist">
+                    <div class="checklist-item">
+                        <input type="checkbox" id="coupang-check-1">
+                        <label for="coupang-check-1">쿠팡윙에서 API 발급 완료</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="coupang-check-2">
+                        <label for="coupang-check-2">연동 정보에서 IP 주소 (54.180.135.117) 추가 완료</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="coupang-check-3">
+                        <label for="coupang-check-3">SellSync에 키 입력 완료</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p>연동이 어려우시면 <a href="https://pf.kakao.com/_sellsync" target="_blank">카카오톡으로 문의</a>해 주세요.</p>
+            <p style="margin-top: 8px;">화면공유로 함께 진행해 드립니다 (무료)</p>
+        </div>
+
+        <!-- ==================== 이카운트 ERP 가이드 ==================== -->
+        <div class="tab-content" id="ecount">
+
+            <!-- 사전 안내 -->
+            <div class="step-card" style="border-left: 4px solid #6366f1;">
+                <div class="step-header">
+                    <div class="step-badge" style="background: #6366f1;">!</div>
+                    <div>
+                        <div class="step-title">이카운트 API 연동 흐름</div>
+                        <div class="step-subtitle">테스트 → 검증 → 실인증키 순서로 진행합니다</div>
+                    </div>
+                </div>
+                
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 20px 0;">
+                    <span style="background: #fef3c7; padding: 8px 16px; border-radius: 8px; font-size: 14px; font-weight: 600;">① 테스트 인증키 발급</span>
+                    <span style="color: #9ca3af;">→</span>
+                    <span style="background: #dbeafe; padding: 8px 16px; border-radius: 8px; font-size: 14px; font-weight: 600;">② API 검증</span>
+                    <span style="color: #9ca3af;">→</span>
+                    <span style="background: #d1fae5; padding: 8px 16px; border-radius: 8px; font-size: 14px; font-weight: 600;">③ 실인증키 발급</span>
+                </div>
+
+                <div class="alert alert-warning">
+                    <strong>⚠️ 중요!</strong>
+                    테스트 인증키로 API를 검증해야만 실인증키를 발급받을 수 있습니다. 검증하지 않은 API는 실인증키로도 사용할 수 없어요.
+                </div>
+            </div>
+
+            <!-- Step 1: 테스트 인증키 발급 -->
+            <div class="step-card">
+                <div class="step-header">
+                    <div class="step-badge" style="background: #f59e0b;">1</div>
+                    <div>
+                        <div class="step-title">테스트 인증키 발급받기</div>
+                        <div class="step-subtitle">먼저 테스트용 키를 발급받아요 (유효기간 2주)</div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">1</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            <strong>이카운트 ERP</strong>에 마스터 아이디 또는 관리자 권한이 있는 아이디로 로그인하세요.
+                        </div>
+                        <a href="https://login.ecount.com" target="_blank" class="link-btn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                                <polyline points="15 3 21 3 21 9"/>
+                                <line x1="10" y1="14" x2="21" y2="3"/>
+                            </svg>
+                            이카운트 ERP 로그인
+                        </a>
+                        <div class="input-preview" style="margin-top: 12px;">
+                            <div class="input-preview-title">📝 로그인 시 확인할 정보 (메모해 두세요!)</div>
+                            <div class="input-field">
+                                <span class="input-label">회사코드 (6자리 숫자)</span>
+                                <div class="input-sample">예: 123456</div>
+                            </div>
+                            <div class="input-field">
+                                <span class="input-label">사용자 ID</span>
+                                <div class="input-sample">예: ADMIN</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">2</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            아래 경로로 이동하세요:<br>
+                            <strong>Self-Customizing → 정보관리 → API인증키발급</strong>
+                        </div>
+                        <div class="screenshot">
+                            <img src="ecount-01-main.png" alt="API인증키발급 메뉴">
+                            <div class="screenshot-caption">👆 Self-Customizing > 정보관리 > API인증키발급 화면</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">3</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            하단의 <strong>API인증현황</strong> 버튼을 클릭하세요.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">4</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            팝업창 하단의 <strong>키발급</strong> 버튼을 클릭하고, <strong>테스트 인증키</strong>를 선택하세요.
+                        </div>
+                        <div class="alert alert-info" style="margin-top: 12px;">
+                            <strong>📺 영상 가이드</strong>
+                            <a href="https://www.youtube.com/watch?v=fe-d8OkxOYE" target="_blank" style="color: #1d4ed8;">이카운트 공식 유튜브 - 테스트 인증키 발급 방법 (53초)</a>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">5</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            발급이 완료되면 <strong>테스트 인증키</strong>와 <strong>발급 ID</strong>가 표시됩니다.<br>
+                            이 정보를 복사해서 메모해 두세요.
+                        </div>
+                        <div class="alert alert-warning" style="margin-top: 12px;">
+                            <strong>⏰ 테스트 인증키 유효기간: 2주</strong><br>
+                            2주 안에 검증을 완료해야 합니다. 최대 3개까지 발급 가능해요.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2: SellSync에서 검증 -->
+            <div class="step-card">
+                <div class="step-header">
+                    <div class="step-badge" style="background: #3b82f6;">2</div>
+                    <div>
+                        <div class="step-title">SellSync에서 API 검증하기</div>
+                        <div class="step-subtitle">테스트 키로 연결해서 API를 검증해요</div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">1</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            SellSync에서 <strong>ERP 연동</strong> 메뉴로 이동하세요.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">2</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            발급받은 <strong>테스트 인증키</strong> 정보를 입력하세요:
+                        </div>
+                        <div class="input-preview">
+                            <div class="input-preview-title">SellSync 입력란 (테스트 모드)</div>
+                            <div class="input-field">
+                                <span class="input-label">회사코드 (COM_CODE)</span>
+                                <div class="input-sample">로그인 시 입력한 6자리 숫자</div>
+                            </div>
+                            <div class="input-field">
+                                <span class="input-label">사용자 ID (USER_ID)</span>
+                                <div class="input-sample">테스트 인증키 발급 시 선택한 ID</div>
+                            </div>
+                            <div class="input-field">
+                                <span class="input-label">API 인증키 (테스트)</span>
+                                <div class="input-sample">발급받은 테스트 인증키</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">3</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            <strong>연결 테스트</strong> 버튼을 클릭하세요.<br>
+                            SellSync가 이카운트 API를 호출하면서 자동으로 검증이 진행됩니다.
+                        </div>
+                        <div class="alert alert-success" style="margin-top: 12px;">
+                            <strong>✅ 검증되는 API</strong>
+                            품목 조회, 거래처 조회, 판매전표 생성 등 SellSync에서 사용하는 API가 자동으로 검증됩니다.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">4</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            연결 테스트가 성공하면 <strong>검증 완료!</strong><br>
+                            이제 이카운트에서 실인증키를 발급받을 수 있어요.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 3: 실인증키 발급 -->
+            <div class="step-card">
+                <div class="step-header">
+                    <div class="step-badge" style="background: #10b981;">3</div>
+                    <div>
+                        <div class="step-title">실인증키 발급받기</div>
+                        <div class="step-subtitle">검증 완료 후 실제 운영용 키를 발급받아요</div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">1</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            다시 이카운트 ERP로 돌아가서<br>
+                            <strong>Self-Customizing → 정보관리 → API인증키발급</strong>으로 이동하세요.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">2</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            하단의 <strong>키발급</strong> 버튼을 클릭하세요.
+                        </div>
+                        <div class="screenshot">
+                            <img src="ecount-02-popup.png" alt="키발급 팝업">
+                            <div class="screenshot-caption">👆 키발급 클릭 → 사용할 ID 선택 → 저장(F8)</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">3</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            팝업에서 <strong>사용할 ID</strong>를 선택하고 <strong>저장(F8)</strong>을 클릭하세요.<br>
+                            <span style="color: var(--gray-500); font-size: 14px;">※ 인증키와 허용된 ID가 일치해야 API가 작동합니다</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">4</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            발급이 완료되면 <strong>실인증키</strong>와 <strong>유효기간</strong>이 표시됩니다.
+                        </div>
+                        <div class="input-preview">
+                            <div class="input-preview-title">📝 발급 완료 시 확인할 정보</div>
+                            <div class="input-field">
+                                <span class="input-label">API 인증키 (실인증키)</span>
+                                <div class="input-sample">예: a1b2c3d4-e5f6-7890-abcd-ef1234567890</div>
+                            </div>
+                            <div class="input-field">
+                                <span class="input-label">유효기간</span>
+                                <div class="input-sample">발급일로부터 1년</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 4: SellSync에 실인증키 입력 -->
+            <div class="step-card">
+                <div class="step-header">
+                    <div class="step-badge" style="background: #6366f1;">4</div>
+                    <div>
+                        <div class="step-title">SellSync에 실인증키 입력하기</div>
+                        <div class="step-subtitle">테스트 키를 실인증키로 교체해요</div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">1</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            SellSync에서 <strong>ERP 연동</strong> 메뉴로 이동하세요.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">2</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            기존 테스트 인증키를 <strong>실인증키</strong>로 교체하세요:
+                        </div>
+                        <div class="input-preview">
+                            <div class="input-preview-title">SellSync 입력란 (실운영 모드)</div>
+                            <div class="input-field">
+                                <span class="input-label">회사코드 (COM_CODE)</span>
+                                <div class="input-sample">그대로 유지</div>
+                            </div>
+                            <div class="input-field">
+                                <span class="input-label">사용자 ID (USER_ID)</span>
+                                <div class="input-sample">실인증키 발급 시 선택한 ID</div>
+                            </div>
+                            <div class="input-field">
+                                <span class="input-label">API 인증키 (실인증키)</span>
+                                <div class="input-sample">새로 발급받은 실인증키로 교체</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">3</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            <strong>저장</strong> 버튼을 클릭하면 연동 완료! 🎉
+                        </div>
+                    </div>
+                </div>
+
+                <div class="checklist">
+                    <div class="checklist-item">
+                        <input type="checkbox" id="ecount-check-1">
+                        <label for="ecount-check-1">이카운트 ERP에 관리자로 로그인</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="ecount-check-2">
+                        <label for="ecount-check-2">회사코드 (6자리) 메모</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="ecount-check-3">
+                        <label for="ecount-check-3">테스트 인증키 발급 완료</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="ecount-check-4">
+                        <label for="ecount-check-4">SellSync에서 연결 테스트 (검증) 완료</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="ecount-check-5">
+                        <label for="ecount-check-5">실인증키 발급 완료</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="ecount-check-6">
+                        <label for="ecount-check-6">SellSync에 실인증키 입력 완료</label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 유효기간 연장 안내 -->
+            <div class="step-card" style="border-left: 4px solid var(--warning);">
+                <div class="step-header">
+                    <div class="step-badge" style="background: var(--warning);">⏰</div>
+                    <div>
+                        <div class="step-title">인증키 유효기간 연장하기</div>
+                        <div class="step-subtitle">1년마다 연장이 필요합니다</div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">1</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            유효기간 만료 전에 <strong>Self-Customizing → 정보관리 → API인증키발급</strong>으로 이동하세요.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="instruction">
+                    <div class="instruction-number">2</div>
+                    <div class="instruction-content">
+                        <div class="instruction-text">
+                            하단의 <strong>유효기간 연장</strong> 버튼을 클릭하면 1년 연장됩니다.
+                        </div>
+                        <div class="alert alert-warning" style="margin-top: 12px;">
+                            <strong>⚠️ 주의!</strong>
+                            인증 기간 만료 후 3개월이 지나면 인증키가 영구 삭제되어 신규 발급이 필요합니다.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Tab switching
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                // Remove active from all tabs
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                
+                // Add active to clicked tab
+                btn.classList.add('active');
+                document.getElementById(btn.dataset.tab).classList.add('active');
+            });
+        });
+
+        // Copy to clipboard
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('복사되었습니다!');
+            });
+        }
+
+        // Save checklist state to localStorage
+        document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+            // Load saved state
+            const saved = localStorage.getItem(checkbox.id);
+            if (saved === 'true') {
+                checkbox.checked = true;
+            }
+
+            // Save on change
+            checkbox.addEventListener('change', () => {
+                localStorage.setItem(checkbox.id, checkbox.checked);
+            });
+        });
+    </script>
+</body>
+</html>
